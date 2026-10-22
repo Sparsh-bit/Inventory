@@ -1,0 +1,30 @@
+# Production-like stack: StockPilot + MongoDB (single-node replica set for transactions).
+# 1) cp env.example .env and fill BETTER_AUTH_SECRET, APP_URL (https), SMTP_URL
+# 2) docker compose up -d --build
+services:
+  mongo:
+    image: mongo:8
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    volumes: [mongo-data:/data/db]
+    healthcheck:
+      # Initiates the replica set on first start, then reports healthy once it is PRIMARY.
+      test: ["CMD", "mongosh", "--quiet", "--eval", "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] }).ok }"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+    restart: unless-stopped
+
+  app:
+    build: .
+    depends_on:
+      mongo: { condition: service_healthy }
+    env_file: .env
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/stockpilot?replicaSet=rs0
+    ports: ["3000:3000"]
+    volumes: [uploads:/data/uploads]
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
+  uploads:

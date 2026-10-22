@@ -12,7 +12,9 @@
     "test:int": "vitest run tests/integration",
     "e2e": "playwright test",
     "db": "bash scripts/db.sh",
-    "seed": "tsx scripts/seed.ts"
+    "test:all": "vitest run && playwright test",
+    "bridge": "node print-bridge/bridge.mjs",
+    "clean:mac": "find . -name '._*' -not -path './node_modules/*' -delete"
   },
   "dependencies": {
     "@zxing/browser": "^0.2.1",

@@ -13,10 +13,14 @@ const schema = z.object({
   UPLOAD_DIR: z.string().default("./uploads"),
 });
 
+// `next build` (e.g. in Docker/CI) runs without runtime secrets; validate strictly at runtime.
+const isBuild = process.env.NEXT_PHASE === "phase-production-build";
 const parsed = schema.safeParse(process.env);
-if (!parsed.success) {
+if (!parsed.success && !isBuild) {
   const issues = parsed.error.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`).join("\n");
   throw new Error(`Invalid environment configuration:\n${issues}`);
 }
 
-export const env = parsed.data;
+export const env = parsed.success
+  ? parsed.data
+  : schema.parse({ ...process.env, MONGODB_URI: "mongodb://build-placeholder", BETTER_AUTH_SECRET: "build-placeholder-".padEnd(40, "x"), APP_URL: "http://localhost:3000" });

@@ -23,7 +23,7 @@ export default defineConfig({
   testIgnore: ["**/._*"],
   fullyParallel: false,
   workers: 1,
-  timeout: 90_000,
+  timeout: 45_000,
   expect: { timeout: 15_000 },
   reporter: [["list"], ["html", { open: "never" }]],
   globalSetup: "./e2e/global-setup.ts",

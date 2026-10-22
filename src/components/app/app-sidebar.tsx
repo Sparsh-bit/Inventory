@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Check, ChevronsUpDown, LogOut, Moon, Plus, Sun, UserRound } from "lucide-react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/app/theme";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 import { ROLE_LABELS } from "@/lib/permissions";

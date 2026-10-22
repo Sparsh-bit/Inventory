@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { headers } from "next/headers";
-import { ThemeProvider } from "next-themes";
+import Script from "next/script";
+import { THEME_SCRIPT } from "@/components/app/theme";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
@@ -30,10 +31,11 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" suppressHydrationWarning className={`${sans.variable} ${mono.variable} h-full antialiased`}>
       <body className="min-h-full bg-background">
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange nonce={nonce}>
-          <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
-          <Toaster richColors position="top-right" closeButton />
-        </ThemeProvider>
+        <Script id="theme" strategy="beforeInteractive" nonce={nonce}>
+          {THEME_SCRIPT}
+        </Script>
+        <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
+        <Toaster richColors position="top-right" closeButton />
       </body>
     </html>
   );

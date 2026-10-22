@@ -12,3 +12,5 @@ export function formatDate(d: Date | string, tz: string, locale = "en-IN", withT
 }
 
 export const PAYMENT_LABELS: Record<string, string> = { cash: "Cash", card: "Card", upi: "UPI", credit: "On account", bank: "Bank transfer", other: "Other" };
+
+export const pageOf = (v: unknown) => Math.max(1, Math.min(10_000, Number.parseInt(String(v ?? "1"), 10) || 1));

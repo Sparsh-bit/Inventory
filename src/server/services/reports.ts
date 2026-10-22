@@ -21,7 +21,7 @@ export function parseRange(tz: string, from?: string, to?: string) {
   const t = to && re.test(to) ? to : localToday;
   const start = startOfDay(tz, new Date(`${f}T12:00:00Z`));
   const end = new Date(startOfDay(tz, new Date(`${t}T12:00:00Z`)).getTime() + 86400e3);
-  return { from: f, to: t, start, end };
+  return { from: f, to: t, start, end, today: localToday };
 }
 
 const oid = (s: string) => new Types.ObjectId(s);

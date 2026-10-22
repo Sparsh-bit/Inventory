@@ -68,7 +68,7 @@ export default async function SalesPage({ searchParams }: PageProps<"/sales">) {
             { value: "void", label: "Voided" },
           ]}
         />
-        <DateRange from={range.from} to={range.to} />
+        <DateRange from={range.from} to={range.to} today={range.today} />
       </div>
       {rows.length === 0 ? (
         <Card>

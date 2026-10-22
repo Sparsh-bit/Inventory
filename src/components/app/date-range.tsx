@@ -4,10 +4,14 @@ import { CalendarDays } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { SelectField } from "./select-field";
 
-const iso = (d: Date) => d.toLocaleDateString("en-CA");
+/** yyyy-mm-dd arithmetic in UTC (pure, timezone-independent). */
+function shift(isoDate: string, days = 0, months = 0, day?: number) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1 + months, day ?? d + days)).toISOString().slice(0, 10);
+}
 
 /** From/to date inputs + quick presets, kept in the URL. */
-export function DateRange({ from, to }: { from: string; to: string }) {
+export function DateRange({ from, to, today }: { from: string; to: string; today: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -18,15 +22,14 @@ export function DateRange({ from, to }: { from: string; to: string }) {
     next.delete("page");
     router.replace(`${pathname}?${next}`, { scroll: false });
   };
-  const today = new Date();
   const presets: Record<string, [string, string]> = {
-    today: [iso(today), iso(today)],
-    yesterday: [iso(new Date(Date.now() - 864e5)), iso(new Date(Date.now() - 864e5))],
-    last7: [iso(new Date(Date.now() - 6 * 864e5)), iso(today)],
-    month: [iso(new Date(today.getFullYear(), today.getMonth(), 1)), iso(today)],
-    lastMonth: [iso(new Date(today.getFullYear(), today.getMonth() - 1, 1)), iso(new Date(today.getFullYear(), today.getMonth(), 0))],
-    last90: [iso(new Date(Date.now() - 89 * 864e5)), iso(today)],
-    year: [iso(new Date(today.getFullYear(), 0, 1)), iso(today)],
+    today: [today, today],
+    yesterday: [shift(today, -1), shift(today, -1)],
+    last7: [shift(today, -6), today],
+    month: [shift(today, 0, 0, 1), today],
+    lastMonth: [shift(today, 0, -1, 1), shift(today, 0, 0, 0)],
+    last90: [shift(today, -89), today],
+    year: [`${today.slice(0, 4)}-01-01`, today],
   };
   const current = Object.entries(presets).find(([, [f, t]]) => f === from && t === to)?.[0] ?? "custom";
 

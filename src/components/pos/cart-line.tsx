@@ -41,7 +41,7 @@ export function CartLineRow({ line, total, locationId, allowNegative, onChange, 
           <Button variant="outline" size="icon-xs" aria-label={`Decrease ${hit.name}`} onClick={() => (line.qty - step <= 0 ? onRemove() : onChange({ qty: line.qty - step }))}>
             <Minus />
           </Button>
-          <QtyInput qty={line.qty} scale={hit.scale} onChange={(qty) => onChange({ qty })} label={`Quantity of ${hit.name}`} />
+          <QtyInput key={line.qty} qty={line.qty} scale={hit.scale} onChange={(qty) => onChange({ qty })} label={`Quantity of ${hit.name}`} />
           <Button variant="outline" size="icon-xs" aria-label={`Increase ${hit.name}`} onClick={() => onChange({ qty: line.qty + step })}>
             <Plus />
           </Button>
@@ -61,7 +61,6 @@ export function CartLineRow({ line, total, locationId, allowNegative, onChange, 
 
 function QtyInput({ qty, scale, onChange, label }: { qty: number; scale: number; onChange: (q: number) => void; label: string }) {
   const [text, setText] = useState(formatQty(qty, scale));
-  useEffect(() => setText(formatQty(qty, scale)), [qty, scale]);
   return (
     <Input
       aria-label={label}

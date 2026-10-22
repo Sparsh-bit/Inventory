@@ -34,7 +34,10 @@ export function SignInForm({ next }: { next: string }) {
       setError(error.status === 429 ? (error.message ?? "Too many attempts. Please wait and try again.") : "Incorrect email or password.");
       return;
     }
-    if (data && "twoFactorRedirect" in data && data.twoFactorRedirect) return; // handled by plugin redirect
+    if (data && "twoFactorRedirect" in data && data.twoFactorRedirect) {
+      router.push("/two-factor");
+      return;
+    }
     router.replace(next);
     router.refresh();
   }

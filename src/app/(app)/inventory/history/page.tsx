@@ -52,7 +52,7 @@ export default async function HistoryPage({ searchParams }: PageProps<"/inventor
       />
       <div className="mb-4 flex flex-col gap-2 lg:flex-row">
         <FilterSelect param="type" placeholder="All movement types" options={Object.entries(LABEL).map(([value, label]) => ({ value, label }))} />
-        {!sp.product && <DateRange from={range.from} to={range.to} />}
+        {!sp.product && <DateRange from={range.from} to={range.to} today={range.today} />}
         {sp.product && <Button asChild variant="ghost" size="sm"><Link href="/inventory/history">Show all products</Link></Button>}
       </div>
       {moves.length === 0 ? (

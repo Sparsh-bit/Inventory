@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Package, Search } from "lucide-react";
 import { formatQty } from "@/lib/format";
 import { searchProducts } from "@/server/actions/products";
 import type { VariantHit } from "@/server/services/products";
 import { useOrg } from "@/components/app/org-context";
+import { useSearch } from "@/components/app/use-search";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
@@ -14,22 +15,11 @@ export function ProductPicker({ onPick, locationId, placeholder = "Search produc
   const org = useOrg();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
-  const [hits, setHits] = useState<VariantHit[]>([]);
-  const [loading, setLoading] = useState(false);
-  const seq = useRef(0);
-
-  useEffect(() => {
-    if (!open) return;
-    const my = ++seq.current;
-    setLoading(true);
-    const t = setTimeout(async () => {
-      const res = await searchProducts({ q, locationId });
-      if (my !== seq.current) return;
-      setLoading(false);
-      setHits(res.ok ? res.data : []);
-    }, 200);
-    return () => clearTimeout(t);
-  }, [q, open, locationId]);
+  const { data, loading } = useSearch(open ? `${q}|${locationId ?? ""}` : null, async () => {
+    const res = await searchProducts({ q, locationId });
+    return res.ok ? res.data : [];
+  });
+  const hits = data ?? [];
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

@@ -1,4 +1,5 @@
 "use client";
+import { useSyncExternalStore } from "react";
 // Per-device printer setup. Lives in localStorage because each counter PC/phone has its own printer.
 
 export type Transport = "browser" | "serial" | "usb" | "bluetooth" | "bridge";
@@ -25,10 +26,48 @@ export function loadProfile(): PrinterProfile {
   }
 }
 
+const listeners = new Set<() => void>();
+let cache: { raw: string | null; profile: PrinterProfile } | null = null;
+
+function snapshot(): PrinterProfile {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(KEY);
+  } catch {}
+  if (!cache || cache.raw !== raw) cache = { raw, profile: loadProfile() };
+  return cache.profile;
+}
+
+function subscribe(cb: () => void) {
+  listeners.add(cb);
+  window.addEventListener("storage", cb);
+  return () => {
+    listeners.delete(cb);
+    window.removeEventListener("storage", cb);
+  };
+}
+
 export function saveProfile(p: PrinterProfile) {
   try {
     localStorage.setItem(KEY, JSON.stringify(p));
   } catch {}
+  listeners.forEach((l) => l());
+}
+
+/** This device's printer profile, kept in sync across components and tabs. */
+export function usePrinterProfile(): PrinterProfile {
+  return useSyncExternalStore(subscribe, snapshot, () => DEFAULT_PROFILE);
+}
+
+const NO_SUPPORT = { serial: false, usb: false, bluetooth: false };
+let capsCache: typeof NO_SUPPORT | null = null;
+/** Which direct-printing browser APIs exist here (stable object for useSyncExternalStore). */
+export function usePrinterSupport() {
+  return useSyncExternalStore(
+    () => () => undefined,
+    () => (capsCache ??= supports()),
+    () => NO_SUPPORT,
+  );
 }
 
 export const supports = () => ({

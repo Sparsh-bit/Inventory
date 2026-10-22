@@ -44,12 +44,9 @@ export function PaymentDialog({
   kind: "receipt" | "tax_invoice"; onKindChange: (k: "receipt" | "tax_invoice") => void; onPay: (tenders: Tender[]) => void;
 }) {
   const org = useOrg();
-  const [rows, setRows] = useState<{ method: Method; amount: string; reference: string }[]>([]);
-  const [qr, setQr] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (open) setRows([{ method: "cash", amount: fromMinor(total), reference: "" }]);
-  }, [open, total]);
+  // The POS remounts this dialog (via `key`) each time it opens, so initial state is fresh.
+  const [rows, setRows] = useState<{ method: Method; amount: string; reference: string }[]>(() => [{ method: "cash", amount: fromMinor(total), reference: "" }]);
+  const [qrImg, setQrImg] = useState<{ url: string; data: string } | null>(null);
 
   const parsed = rows.map((r) => {
     try {
@@ -70,9 +67,14 @@ export function PaymentDialog({
     [upiId, upiAmount, orgName, org.currency],
   );
   useEffect(() => {
-    if (!upiUrl) return setQr(null);
-    QRCode.toDataURL(upiUrl, { margin: 1, width: 200 }).then(setQr, () => setQr(null));
+    if (!upiUrl) return;
+    let alive = true;
+    QRCode.toDataURL(upiUrl, { margin: 1, width: 200 }).then((data) => alive && setQrImg({ url: upiUrl, data }), () => undefined);
+    return () => {
+      alive = false;
+    };
   }, [upiUrl]);
+  const qr = upiUrl && qrImg?.url === upiUrl ? qrImg.data : null;
 
   const setRow = (i: number, patch: Partial<(typeof rows)[number]>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const submit = () => !invalid && !pending && onPay(rows.map((r, i) => ({ method: r.method, amount: parsed[i], reference: r.reference.trim() })).filter((t) => t.amount > 0));

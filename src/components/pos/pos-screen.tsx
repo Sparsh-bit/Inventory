@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CirclePause, History, Package, Percent, Search, ShoppingCart, Trash2 } from "lucide-react";
@@ -12,6 +12,7 @@ import { checkout, holdBill, resumeHeldBill } from "@/server/actions/sales";
 import type { VariantHit } from "@/server/services/products";
 import { useOrg } from "@/components/app/org-context";
 import { SelectField } from "@/components/app/select-field";
+import { useSearch } from "@/components/app/use-search";
 import { CameraScanButton, PhoneScanButton } from "@/components/scanner/scan-tools";
 import { scanFeedback, useScanner } from "@/components/scanner/use-scanner";
 import { Button } from "@/components/ui/button";
@@ -30,19 +31,30 @@ import { SaleComplete, type CompletedSale } from "./sale-complete";
 import type { CartLine, PosConfig, PosCustomer } from "./types";
 
 const LOC_KEY = "stockpilot.pos.location";
+const subscribeStorage = (cb: () => void) => {
+  window.addEventListener("storage", cb);
+  return () => window.removeEventListener("storage", cb);
+};
+const readStorage = (k: string) => {
+  try {
+    return localStorage.getItem(k);
+  } catch {
+    return null;
+  }
+};
 
 export function PosScreen({ locations, quick, config }: { locations: { id: string; name: string }[]; quick: VariantHit[]; config: PosConfig }) {
   const org = useOrg();
   const router = useRouter();
-  const [locationId, setLocationId] = useState(locations[0]?.id ?? "");
+  const storedLoc = useSyncExternalStore(subscribeStorage, () => readStorage(LOC_KEY), () => null);
+  const [pickedLoc, setLocationId] = useState<string | null>(null);
+  const locationId = pickedLoc ?? (storedLoc && locations.some((l) => l.id === storedLoc) ? storedLoc : (locations[0]?.id ?? ""));
   const [lines, setLines] = useState<CartLine[]>([]);
   const [customer, setCustomer] = useState<PosCustomer | null>(null);
   const [billDiscount, setBillDiscount] = useState(0);
   const [kind, setKind] = useState<"receipt" | "tax_invoice">("receipt");
   const [heldId, setHeldId] = useState<string | undefined>();
   const [q, setQ] = useState("");
-  const [results, setResults] = useState<VariantHit[] | null>(null);
-  const [searching, setSearching] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [heldOpen, setHeldOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
@@ -50,15 +62,13 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
   const [paying, startPay] = useTransition();
   const [holding, startHold] = useTransition();
   const searchRef = useRef<HTMLInputElement>(null);
-  const seq = useRef(0);
-
-  // Restore this device's last location.
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(LOC_KEY);
-      if (saved && locations.some((l) => l.id === saved)) setLocationId(saved);
-    } catch {}
-  }, [locations]);
+  const term = q.trim();
+  const search = useSearch(term ? `${term}|${locationId}` : null, async () => {
+    const r = await searchProducts({ q: term, locationId });
+    return r.ok ? r.data : [];
+  }, 180);
+  const results = term ? search.data : null;
+  const searching = search.loading;
 
   const interState = org.taxMode === "GST" && !!customer?.stateCode && !!config.orgStateCode && customer.stateCode !== config.orgStateCode;
   const bill = useMemo(
@@ -100,24 +110,6 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
   );
 
   useScanner(handleCode, !payOpen && !done);
-
-  // Search as you type.
-  useEffect(() => {
-    const term = q.trim();
-    if (!term) {
-      setResults(null);
-      return;
-    }
-    const my = ++seq.current;
-    setSearching(true);
-    const t = setTimeout(async () => {
-      const r = await searchProducts({ q: term, locationId });
-      if (my !== seq.current) return;
-      setSearching(false);
-      setResults(r.ok ? r.data : []);
-    }, 180);
-    return () => clearTimeout(t);
-  }, [q, locationId]);
 
   function payload() {
     return {
@@ -388,6 +380,7 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
       </Sheet>
 
       <PaymentDialog
+        key={payOpen ? `open-${bill.grandTotal}` : "closed"}
         open={payOpen}
         onOpenChange={setPayOpen}
         total={bill.grandTotal}

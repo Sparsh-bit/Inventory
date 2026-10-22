@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Plus, UserRound, X } from "lucide-react";
 import { INDIAN_STATES } from "@/lib/schemas";
 import { findCustomers, quickAddCustomer } from "@/server/actions/sales";
 import { FormField } from "@/components/app/form-field";
 import { useOrg } from "@/components/app/org-context";
+import { useSearch } from "@/components/app/use-search";
 import { SelectField } from "@/components/app/select-field";
 import { useAction } from "@/components/app/use-action";
 import { Button } from "@/components/ui/button";
@@ -20,23 +21,12 @@ export function CustomerPicker({ value, onChange }: { value: PosCustomer | null;
   const org = useOrg();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
-  const [rows, setRows] = useState<PosCustomer[]>([]);
-  const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
-  const seq = useRef(0);
-
-  useEffect(() => {
-    if (!open) return;
-    const my = ++seq.current;
-    setLoading(true);
-    const t = setTimeout(async () => {
-      const r = await findCustomers({ q });
-      if (my !== seq.current) return;
-      setRows(r.ok ? r.data : []);
-      setLoading(false);
-    }, 200);
-    return () => clearTimeout(t);
-  }, [q, open]);
+  const { data, loading } = useSearch(open ? q : null, async () => {
+    const r = await findCustomers({ q });
+    return r.ok ? r.data : [];
+  });
+  const rows: PosCustomer[] = data ?? [];
 
   if (value)
     return (

@@ -5,10 +5,6 @@ import { organizationClient, twoFactorClient } from "better-auth/client/plugins"
 export const authClient = createAuthClient({
   plugins: [
     organizationClient(),
-    twoFactorClient({
-      onTwoFactorRedirect() {
-        window.location.href = "/two-factor";
-      },
-    }),
+    twoFactorClient(),
   ],
 });

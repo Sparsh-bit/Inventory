@@ -1,6 +1,7 @@
 "use client";
 import { toast } from "sonner";
-import { receiptToEscPos } from "@/lib/receipt";
+import { receiptToEscPos, type ReceiptData } from "@/lib/receipt";
+import { receiptHtml } from "@/lib/receipt-html";
 import { receiptData } from "@/server/actions/sales";
 import { browserPrint, loadProfile, sendRaw } from "./printer";
 
@@ -30,4 +31,26 @@ export async function kickDrawer() {
   } catch (e) {
     toast.error((e as Error).message);
   }
+}
+
+/** Prints a receipt built on this device (offline bills): ESC/POS when available, else a local page. */
+export async function printLocal(receipt: ReceiptData, opts: { drawer?: boolean } = {}) {
+  const p = loadProfile();
+  const data = { ...receipt, org: { ...receipt.org, paperWidth: p.width } };
+  if (p.transport !== "browser") {
+    try {
+      await sendRaw(p, receiptToEscPos(data, { openDrawer: opts.drawer ?? p.openDrawer }));
+      return;
+    } catch (e) {
+      toast.error((e as Error).message || "Printer not reachable", { description: "Opening the browser print dialog instead." });
+    }
+  }
+  document.getElementById("print-frame")?.remove();
+  const f = document.createElement("iframe");
+  f.id = "print-frame";
+  f.title = "Print";
+  f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+  f.srcdoc = receiptHtml(data);
+  f.onload = () => f.contentWindow?.print();
+  document.body.appendChild(f);
 }

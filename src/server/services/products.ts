@@ -175,3 +175,9 @@ export async function getVariantHits(ctx: Ctx, variantIds: string[], locationId?
   const wanted = new Set(variantIds);
   return hits.filter((h) => wanted.has(h.variantId));
 }
+
+/** Everything the POS needs to keep selling offline at one location. */
+export async function catalogSnapshot(ctx: Ctx, locationId: string, max = 20000): Promise<VariantHit[]> {
+  const products = await Product.find({ orgId: ctx.orgId, active: true }).sort({ name: 1 }).limit(max).lean<ProductDoc[]>();
+  return (await toHits(ctx, products, locationId)).slice(0, max);
+}

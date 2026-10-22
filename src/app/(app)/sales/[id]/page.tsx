@@ -7,7 +7,9 @@ import { can } from "@/lib/permissions";
 import { getOrgSettings, requireCtx } from "@/server/context";
 import { Location, Sale, type SaleDoc } from "@/server/models";
 import { PageBody, PageHeader } from "@/components/app/page-header";
-import { SaleActions } from "@/components/sales/sale-actions";
+import { MarkReviewedButton, SaleActions } from "@/components/sales/sale-actions";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -42,7 +44,7 @@ export default async function SalePage({ params }: PageProps<"/sales/[id]">) {
             {sale.status === "void" && <Badge variant="destructive">Void</Badge>}
           </span>
         }
-        description={`${formatDate(sale.completedAt!, s.timezone, s.locale, true)} · ${loc?.name ?? ""} · by ${sale.cashierName}`}
+        description={`${formatDate(sale.completedAt!, s.timezone, s.locale, true)} · ${loc?.name ?? ""} · by ${sale.cashierName}${sale.deviceCode ? ` · offline on till ${sale.deviceCode}` : ""}`}
         actions={
           <SaleActions
             saleId={id}
@@ -54,6 +56,16 @@ export default async function SalePage({ params }: PageProps<"/sales/[id]">) {
         }
       />
 
+      {sale.syncIssues.length > 0 && (
+        <Alert variant="destructive" className="mb-6">
+          <AlertTriangle />
+          <AlertTitle>This offline bill needs review</AlertTitle>
+          <AlertDescription>
+            <ul className="list-inside list-disc">{sale.syncIssues.map((i, k) => <li key={k}>{i.message}</li>)}</ul>
+            {can(ctx.role, "sales:return") && <div className="mt-3"><MarkReviewedButton saleId={id} /></div>}
+          </AlertDescription>
+        </Alert>
+      )}
       <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
         <Card className="py-0">
           <Table>

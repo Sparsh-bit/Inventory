@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Ban, FileText, Printer, Undo2 } from "lucide-react";
 import { formatQty } from "@/lib/format";
+import { markSaleReviewed } from "@/server/actions/offline";
 import { cancelSale, refundSale } from "@/server/actions/sales";
 import { useOrg } from "@/components/app/org-context";
 import { SelectField } from "@/components/app/select-field";
@@ -156,5 +157,15 @@ export function SaleActions({ saleId, canReturn, canVoid, hasCustomer, lines }: 
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+export function MarkReviewedButton({ saleId }: { saleId: string }) {
+  const router = useRouter();
+  const { run, pending } = useAction(markSaleReviewed);
+  return (
+    <Button size="sm" variant="outline" disabled={pending} onClick={() => run({ saleId }, { success: "Marked as reviewed", onSuccess: () => router.refresh() })}>
+      {pending && <Spinner />} Mark as reviewed
+    </Button>
   );
 }

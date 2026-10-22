@@ -1,18 +1,10 @@
 import "server-only";
+import { fiscalYear } from "@/lib/numbering";
 import type { ClientSession } from "mongoose";
 import type { Ctx } from "../context";
 import { AuditLog, Counter, OrgSettings, type OrgSettingsDoc } from "../models";
 
 export type DocType = "sale" | "invoice" | "return" | "purchase" | "barcode";
-
-function fiscalYear(date: Date, startMonth: number, timezone: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "numeric" }).formatToParts(date);
-  const y = Number(parts.find((p) => p.type === "year")!.value);
-  const m = Number(parts.find((p) => p.type === "month")!.value);
-  if (startMonth === 1) return String(y % 100).padStart(2, "0");
-  const start = m >= startMonth ? y : y - 1;
-  return `${String(start % 100).padStart(2, "0")}-${String((start + 1) % 100).padStart(2, "0")}`;
-}
 
 /** Gap-free per business & fiscal year when called inside the document's transaction. */
 export async function nextNumber(ctx: Ctx, docType: DocType, session?: ClientSession): Promise<{ seq: number; number: string }> {

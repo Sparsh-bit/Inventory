@@ -28,6 +28,7 @@ const ACTIONS: [string, string, Permission][] = [
   ["inventory", "saveLocation", "settings:manage"],
   ["purchases", "savePO", "purchases:write"], ["purchases", "receivePO", "purchases:write"], ["purchases", "returnPO", "purchases:write"], ["purchases", "cancelPO", "purchases:write"],
   ["parties", "upsertParty", "parties:read"], ["parties", "archiveParty", "parties:read"], ["parties", "addPayment", "parties:read"],
+  ["offline", "registerTill", "pos:sell"], ["offline", "getPosSnapshot", "pos:sell"], ["offline", "syncOfflineSales", "pos:sell"], ["offline", "markSaleReviewed", "sales:return"],
   ["settings", "updateBusiness", "settings:manage"], ["settings", "updateReceipt", "settings:manage"], ["settings", "saveTaxRate", "settings:manage"], ["settings", "deleteTaxRate", "settings:manage"],
 ];
 

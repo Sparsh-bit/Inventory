@@ -7,6 +7,7 @@ import { getOrgSettings, requireCtx } from "@/server/context";
 import { AppSidebar } from "@/components/app/app-sidebar";
 import { CommandMenu } from "@/components/app/command-menu";
 import { OrgProvider } from "@/components/app/org-context";
+import { RegisterServiceWorker } from "@/components/offline/register-sw";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -28,6 +29,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         receiptWidth: (settings.receipt?.paperWidth ?? 80) as 58 | 80,
       }}
     >
+      <RegisterServiceWorker />
       <SidebarProvider defaultOpen={cookieStore.get("sidebar_state")?.value !== "false"}>
         <AppSidebar orgs={orgs.map((o) => ({ id: o.id, name: o.name }))} userEmail={ctx.userEmail} />
         <SidebarInset className="min-w-0">

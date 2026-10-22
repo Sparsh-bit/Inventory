@@ -28,6 +28,9 @@ import { CustomerPicker } from "./customer-picker";
 import { HeldBills } from "./held-bills";
 import { PaymentDialog, type Tender } from "./payment-dialog";
 import { SerialDialog } from "./serial-dialog";
+import { OfflineStatus } from "@/components/offline/offline-status";
+import { useOfflinePos } from "@/components/offline/use-offline-pos";
+import { isNetworkError } from "@/components/offline/use-online";
 import { SaleComplete, type CompletedSale } from "./sale-complete";
 import type { CartLine, PosConfig, PosCustomer } from "./types";
 
@@ -63,10 +66,16 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
   const [paying, startPay] = useTransition();
   const [holding, startHold] = useTransition();
   const searchRef = useRef<HTMLInputElement>(null);
+  const offline = useOfflinePos(org.orgId, locationId);
   const term = q.trim();
-  const search = useSearch(term ? `${term}|${locationId}` : null, async () => {
-    const r = await searchProducts({ q: term, locationId });
-    return r.ok ? r.data : [];
+  const search = useSearch(term ? `${term}|${locationId}|${offline.online}` : null, async () => {
+    if (!navigator.onLine) return offline.searchLocal(term);
+    try {
+      const r = await searchProducts({ q: term, locationId });
+      return r.ok ? r.data : [];
+    } catch {
+      return offline.searchLocal(term);
+    }
   }, 180);
   const results = term ? search.data : null;
   const searching = search.loading;
@@ -125,10 +134,19 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
 
   const handleCode = useCallback(
     async (code: string) => {
-      const res = await lookupCode({ code, locationId });
-      if (res.ok && res.data) {
+      let found: VariantHit | null = null;
+      if (navigator.onLine) {
+        try {
+          const res = await lookupCode({ code, locationId });
+          found = res.ok ? res.data : null;
+        } catch (e) {
+          if (!isNetworkError(e)) throw e;
+          found = offline.lookupLocal(code);
+        }
+      } else found = offline.lookupLocal(code);
+      if (found) {
         scanFeedback(true);
-        addHit(res.data);
+        addHit(found);
         return;
       }
       scanFeedback(false);
@@ -136,7 +154,7 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
         action: org.can("products:write") ? { label: "Create", onClick: () => router.push(`/products/new?barcode=${encodeURIComponent(code)}`) } : undefined,
       });
     },
-    [locationId, addHit, org, router],
+    [locationId, addHit, org, router, offline],
   );
 
   useScanner(handleCode, !payOpen && !done && !serialFor);
@@ -161,20 +179,33 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
 
   function pay(tenders: Tender[]) {
     startPay(async () => {
-      const res = await checkout({ ...payload(), payments: tenders });
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
       const paid = tenders.reduce((a, t) => a + t.amount, 0);
-      setPayOpen(false);
-      setDone({ saleId: res.data.saleId, number: res.data.number, total: bill.grandTotal, change: Math.max(0, paid - bill.grandTotal), paidCash: tenders.some((t) => t.method === "cash"), customerPhone: customer?.phone ?? "" });
-      router.refresh();
+      const clientId = crypto.randomUUID();
+      const finish = (saleId: string | null, number: string, local?: CompletedSale["local"]) => {
+        setPayOpen(false);
+        setDone({ saleId, number, total: bill.grandTotal, change: Math.max(0, paid - bill.grandTotal), paidCash: tenders.some((t) => t.method === "cash"), customerPhone: customer?.phone ?? "", local });
+      };
+      const sellOffline = async () => {
+        const r = await offline.checkoutOffline({ lines, customer, billDiscount, kind, payments: tenders, locationId, cashierName: org.userName, clientId });
+        if (r) finish(null, r.number, r.receipt);
+      };
+      if (!navigator.onLine) return void (await sellOffline());
+      try {
+        const res = await checkout({ ...payload(), payments: tenders, clientId });
+        if (!res.ok) return void toast.error(res.error);
+        finish(res.data.saleId, res.data.number);
+        router.refresh();
+      } catch (e) {
+        // Connection dropped mid-sale: save it offline with the same clientId (sync de-duplicates).
+        if (isNetworkError(e)) await sellOffline();
+        else toast.error("Something went wrong. Please try again.");
+      }
     });
   }
 
   function hold() {
     if (!lines.length) return;
+    if (!offline.online) return void toast.error("Holding bills needs an internet connection.");
     startHold(async () => {
       const res = await holdBill({ ...payload(), payments: [] });
       if (!res.ok) return void toast.error(res.error);
@@ -220,7 +251,7 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
   const cart = (
     <div className="flex h-full min-h-0 flex-col">
       <div className="space-y-2 border-b p-3">
-        <CustomerPicker value={customer} onChange={(c) => { setCustomer(c); if (!c) setKind("receipt"); }} />
+        <CustomerPicker offlineSearch={offline.online ? undefined : offline.customersLocal} value={customer} onChange={(c) => { setCustomer(c); if (!c) setKind("receipt"); }} />
       </div>
       {lines.length === 0 ? (
         <Empty className="flex-1">
@@ -289,7 +320,7 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
   );
 
   return (
-    <div className="flex h-[calc(100dvh-3.5rem)] min-h-0">
+    <div className="flex h-[calc(100dvh-3.5rem)] min-h-0" data-offline-ready={offline.ready || undefined}>
       <h1 className="sr-only">Point of Sale</h1>
       <section className="flex min-w-0 flex-1 flex-col">
         <div className="flex flex-wrap items-center gap-2 border-b p-3">
@@ -319,7 +350,8 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
           </InputGroup>
           <CameraScanButton onScan={handleCode} />
           <PhoneScanButton onScan={handleCode} />
-          <Button variant="outline" onClick={() => setHeldOpen(true)} aria-label="Held bills (F9)">
+          <OfflineStatus online={offline.online} pending={offline.pending} syncing={offline.syncing} ready={offline.ready} onSync={offline.sync} />
+          <Button variant="outline" onClick={() => setHeldOpen(true)} aria-label="Held bills (F9)" disabled={!offline.online}>
             <History /> <span className="hidden xl:inline">Held</span>
           </Button>
           {locations.length > 1 && (

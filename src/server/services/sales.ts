@@ -130,7 +130,7 @@ export async function completeSale(ctx: Ctx, input: Input) {
       customerId: customer?._id ?? null, customer: customerSnapshot(customer), interState,
       lines: saleLines(lines, b), billDiscount: input.billDiscount, ...totals(b),
       payments: input.payments.filter((p) => p.amount > 0), amountPaid: b.grandTotal - balanceDue, change, balanceDue,
-      cashierId: ctx.userId, cashierName: ctx.userName, notes: input.notes, completedAt: now,
+      cashierId: ctx.userId, cashierName: ctx.userName, notes: input.notes, completedAt: now, clientId: input.clientId ?? null,
     };
     let saleId: string;
     if (input.heldId) {

@@ -19,13 +19,18 @@ export interface MoveInput {
  * The only way stock changes. Decrements are conditional (`qty >= n`) so concurrent
  * sales can never take the same last unit; callers run this inside a transaction.
  */
-export async function applyMoves(ctx: Ctx, moves: MoveInput[], session: ClientSession, opts: { allowNegative?: boolean } = {}) {
+export async function applyMoves(ctx: Ctx, moves: MoveInput[], session: ClientSession, opts: { allowNegative?: boolean; flagShort?: boolean } = {}): Promise<string[]> {
+  // flagShort: the sale already happened (offline) — record it, but report variants that went short.
+  const short: string[] = [];
   for (const m of moves) {
     if (m.qtyDelta === 0) continue;
     const key = { orgId: ctx.orgId, locationId: m.locationId, variantId: m.variantId, batchId: m.batchId ?? null };
     if (m.qtyDelta < 0 && !(opts.allowNegative && !m.batchId)) {
       const res = await StockLevel.updateOne({ ...key, qty: { $gte: -m.qtyDelta } }, { $inc: { qty: m.qtyDelta } }, { session });
-      if (res.matchedCount === 0) {
+      if (res.matchedCount === 0 && opts.flagShort) {
+        await StockLevel.updateOne(key, { $inc: { qty: m.qtyDelta }, $setOnInsert: { productId: m.productId } }, { upsert: true, session });
+        short.push(m.variantId);
+      } else if (res.matchedCount === 0) {
         const level = await StockLevel.findOne(key, { qty: 1 }, { session }).lean();
         const product = await Product.findOne({ orgId: ctx.orgId, "variants._id": m.variantId }, { name: 1, unit: 1, "variants.$": 1 }, { session }).lean();
         const name = product ? [product.name, product.variants[0]?.name].filter(Boolean).join(" ") : "An item";
@@ -40,6 +45,7 @@ export async function applyMoves(ctx: Ctx, moves: MoveInput[], session: ClientSe
     .filter((m) => m.qtyDelta !== 0)
     .map((m) => ({ ...m, orgId: ctx.orgId, batchId: m.batchId ?? null, unitCost: m.unitCost ?? 0, userId: ctx.userId }));
   if (docs.length) await StockMove.insertMany(docs, { session });
+  return short;
 }
 
 /** First-expiry-first-out allocation across batches at a location. */

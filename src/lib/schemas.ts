@@ -95,6 +95,7 @@ export const saleInput = z
     kind: z.enum(["receipt", "tax_invoice"]).default("receipt"),
     notes: trimmed(500).default(""),
     heldId: objectId.optional(),
+    clientId: z.uuid().optional(), // lets an offline retry recognise a bill the server already saved
   })
   .strict();
 export type SaleInput = z.input<typeof saleInput>;

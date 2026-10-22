@@ -201,6 +201,51 @@ describe("stock & sales invariants", () => {
     expect((await svc.models.StockLevel.findOne({ orgId: c.orgId, variantId }).lean())!.qty).toBe(2);
   });
 
+  it("syncs offline bills idempotently and flags conflicts instead of losing sales", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 1); // only 1 in stock
+    const offline = await import("@/server/services/offline");
+    const t1 = await offline.registerDevice(c, "Counter 1");
+    const t2 = await offline.registerDevice(c, "Counter 2");
+    expect([t1.code, t2.code]).toEqual(["T1", "T2"]);
+    const device = await offline.deviceFromToken(c, t1.token);
+    await expect(offline.deviceFromToken(c, "x".repeat(43))).rejects.toThrow(/not registered/);
+
+    const snap = await offline.posSnapshot(c, loc);
+    expect(snap.variants.some((v) => v.variantId === variantId)).toBe(true);
+
+    const { fiscalYear, offlineNumber } = await import("@/lib/numbering");
+    const fy = fiscalYear(new Date(), 4, "Asia/Kolkata");
+    const num = (seq: number, code = "T1") => offlineNumber("S", code, fy, seq);
+    const sale = (seq: number, qty: number, extra: Record<string, unknown> = {}) =>
+      offline.offlineSaleInput.parse({
+        clientId: crypto.randomUUID(), number: num(seq), createdAt: new Date().toISOString(), locationId: loc, customerId: null, kind: "receipt", billDiscount: 0,
+        lines: [{ variantId, qty, unitPrice: 1000, discount: 0 }], payments: [{ method: "cash", amount: 1000 * qty }], grandTotal: 1000 * qty, ...extra,
+      });
+
+    const first = sale(1, 1);
+    const r1 = await offline.syncOfflineSale(c, device.code, String(device._id), first);
+    expect(r1).toMatchObject({ status: "synced", number: num(1), issues: [] });
+    // Same bill sent again (e.g. network dropped after the server saved it).
+    expect(await offline.syncOfflineSale(c, device.code, String(device._id), first)).toMatchObject({ status: "duplicate", saleId: r1.saleId });
+
+    // Stock is gone but the customer already has the goods: recorded + flagged.
+    const r2 = await offline.syncOfflineSale(c, device.code, String(device._id), sale(2, 2));
+    expect(r2.status).toBe("synced");
+    expect(r2.issues!.join()).toMatch(/below zero/);
+    expect((await svc.models.StockLevel.findOne({ orgId: c.orgId, variantId }).lean())!.qty).toBe(-2);
+    expect(await svc.models.Sale.countDocuments({ orgId: c.orgId, "syncIssues.0": { $exists: true } })).toBe(1);
+
+    // Another till's series, a reused number and a changed price/total.
+    expect(await offline.syncOfflineSale(c, device.code, String(device._id), { ...sale(3, 1), number: num(3, "T2") })).toMatchObject({ status: "rejected" });
+    expect(await offline.syncOfflineSale(c, device.code, String(device._id), { ...sale(1, 1), clientId: crypto.randomUUID() })).toMatchObject({ status: "rejected", error: expect.stringMatching(/already used/) });
+    const cashier = { ...c, role: "cashier" as const };
+    const r4 = await offline.syncOfflineSale(cashier, device.code, String(device._id), sale(4, 1, { lines: [{ variantId, qty: 1, unitPrice: 500, discount: 0, serials: [] }], grandTotal: 999 }));
+    expect(r4.issues!.join()).toMatch(/current price/);
+    expect(r4.issues!.join()).toMatch(/Printed total/);
+  });
+
   it("receives purchases partially then fully, with batches and FEFO sales", async () => {
     const c = ctx();
     const loc = await business(c);

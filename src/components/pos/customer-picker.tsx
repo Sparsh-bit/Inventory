@@ -17,12 +17,13 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Spinner } from "@/components/ui/spinner";
 import type { PosCustomer } from "./types";
 
-export function CustomerPicker({ value, onChange }: { value: PosCustomer | null; onChange: (c: PosCustomer | null) => void }) {
+export function CustomerPicker({ value, onChange, offlineSearch }: { value: PosCustomer | null; onChange: (c: PosCustomer | null) => void; offlineSearch?: (q: string) => PosCustomer[] }) {
   const org = useOrg();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
-  const { data, loading } = useSearch(open ? q : null, async () => {
+  const { data, loading } = useSearch(open ? `${q}|${!!offlineSearch}` : null, async () => {
+    if (offlineSearch) return offlineSearch(q);
     const r = await findCustomers({ q });
     return r.ok ? r.data : [];
   });
@@ -66,7 +67,7 @@ export function CustomerPicker({ value, onChange }: { value: PosCustomer | null;
                   </CommandItem>
                 ))}
               </CommandGroup>
-              {org.can("parties:write") && (
+              {org.can("parties:write") && !offlineSearch && (
                 <CommandGroup>
                   <CommandItem onSelect={() => { setOpen(false); setCreating(true); }}>
                     <Plus /> New customer{q && ` “${q}”`}

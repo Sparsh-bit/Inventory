@@ -36,9 +36,10 @@ export default async function SalesPage({ searchParams }: PageProps<"/sales">) {
   else if (sp.type === "credit") filter.balanceDue = { $gt: 0 };
   else if (sp.type === "void") filter.status = "void";
   else if (sp.type === "invoice") filter.kind = "tax_invoice";
+  else if (sp.type === "review") filter["syncIssues.0"] = { $exists: true };
 
   const [rows, total] = await Promise.all([
-    Sale.find(filter, { number: 1, kind: 1, status: 1, completedAt: 1, customer: 1, grandTotal: 1, balanceDue: 1, payments: 1, cashierName: 1, lines: { $slice: 0 } }).sort({ completedAt: -1 }).skip((page - 1) * PAGE).limit(PAGE).lean(),
+    Sale.find(filter, { number: 1, kind: 1, status: 1, completedAt: 1, customer: 1, grandTotal: 1, balanceDue: 1, payments: 1, cashierName: 1, deviceCode: 1, syncIssues: 1, lines: { $slice: 0 } }).sort({ completedAt: -1 }).skip((page - 1) * PAGE).limit(PAGE).lean(),
     Sale.countDocuments(filter),
   ]);
   const exportHref = `/api/export/sales?from=${range.from}&to=${range.to}`;
@@ -66,6 +67,7 @@ export default async function SalesPage({ searchParams }: PageProps<"/sales">) {
             { value: "return", label: "Returns" },
             { value: "credit", label: "Unpaid (credit)" },
             { value: "void", label: "Voided" },
+            { value: "review", label: "Needs review (offline)" },
           ]}
         />
         <DateRange from={range.from} to={range.to} today={range.today} />
@@ -105,6 +107,8 @@ export default async function SalesPage({ searchParams }: PageProps<"/sales">) {
                       {r.kind === "return" && <Badge variant="secondary">Return</Badge>}
                       {r.kind === "tax_invoice" && <Badge variant="outline">Tax invoice</Badge>}
                       {r.status === "void" && <Badge variant="destructive">Void</Badge>}
+                      {r.deviceCode && <Badge variant="outline">Offline · {r.deviceCode}</Badge>}
+                      {(r.syncIssues?.length ?? 0) > 0 && <Badge variant="destructive">Needs review</Badge>}
                       {(r.balanceDue ?? 0) > 0 && <Badge variant="outline" className="border-warning text-warning-foreground dark:text-warning">Due {money(r.balanceDue ?? 0)}</Badge>}
                     </div>
                   </TableCell>

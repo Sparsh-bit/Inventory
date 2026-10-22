@@ -3,13 +3,15 @@ import { useEffect } from "react";
 import { CheckCircle2, FileText, MessageCircle, Printer } from "lucide-react";
 import { useOrg } from "@/components/app/org-context";
 import { loadProfile } from "@/components/print/printer";
-import { printSale } from "@/components/print/use-print-sale";
+import { printLocal, printSale } from "@/components/print/use-print-sale";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/kbd";
 
 export interface CompletedSale {
-  saleId: string;
+  /** null for bills saved offline on this device (printed from `local`). */
+  saleId: string | null;
+  local?: import("@/lib/receipt").ReceiptData;
   number: string;
   total: number;
   change: number;
@@ -23,7 +25,9 @@ export function SaleComplete({ sale, onNext }: { sale: CompletedSale | null; onN
   useEffect(() => {
     if (!sale) return;
     const p = loadProfile();
-    if (p.autoPrint) void printSale(sale.saleId, { drawer: p.openDrawer && sale.paidCash });
+    if (!p.autoPrint) return;
+    if (sale.local) void printLocal(sale.local, { drawer: p.openDrawer && sale.paidCash });
+    else if (sale.saleId) void printSale(sale.saleId, { drawer: p.openDrawer && sale.paidCash });
   }, [sale]);
 
   const wa = sale?.customerPhone
@@ -36,7 +40,7 @@ export function SaleComplete({ sale, onNext }: { sale: CompletedSale | null; onN
         <DialogHeader className="items-center text-center">
           <CheckCircle2 className="size-14 text-success" />
           <DialogTitle className="text-xl">Sale complete</DialogTitle>
-          <DialogDescription>Bill {sale?.number}</DialogDescription>
+          <DialogDescription>Bill {sale?.number}{sale?.local && " · saved on this device, will sync when online"}</DialogDescription>
         </DialogHeader>
         {sale && (
           <>
@@ -51,10 +55,10 @@ export function SaleComplete({ sale, onNext }: { sale: CompletedSale | null; onN
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline" onClick={() => printSale(sale.saleId, { format: "thermal" })}>
+              <Button variant="outline" onClick={() => (sale.local ? printLocal(sale.local) : sale.saleId && printSale(sale.saleId, { format: "thermal" }))}>
                 <Printer /> Receipt
               </Button>
-              <Button variant="outline" onClick={() => printSale(sale.saleId, { format: "a4" })}>
+              <Button variant="outline" disabled={!sale.saleId} title={sale.saleId ? undefined : "Available after the bill syncs"} onClick={() => sale.saleId && printSale(sale.saleId, { format: "a4" })}>
                 <FileText /> A4 invoice
               </Button>
               {wa && (

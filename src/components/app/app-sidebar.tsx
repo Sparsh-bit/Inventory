@@ -5,6 +5,8 @@ import { Check, ChevronsUpDown, LogOut, Moon, Plus, Sun, UserRound } from "lucid
 import { useTheme } from "@/components/app/theme";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
+import { listQueued } from "@/components/offline/store";
+import { clearOfflinePages } from "@/components/offline/register-sw";
 import { ROLE_LABELS } from "@/lib/permissions";
 import { switchBusiness } from "@/server/actions/onboarding";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -38,6 +40,9 @@ export function AppSidebar({ orgs, userEmail }: { orgs: { id: string; name: stri
   }
 
   async function signOut() {
+    const unsynced = await listQueued(org.orgId).then((q) => q.length).catch(() => 0);
+    if (unsynced && !confirm(`${unsynced} offline bill${unsynced === 1 ? " is" : "s are"} not synced yet. They stay safely on this device and sync the next time anyone from this business opens the POS here. Sign out anyway?`)) return;
+    clearOfflinePages();
     await authClient.signOut();
     router.replace("/sign-in");
     router.refresh();

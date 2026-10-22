@@ -25,7 +25,7 @@ const TAX_PRESETS = {
   GST: [
     ["GST 0%", 0, 0], ["GST 5%", 500, 0], ["GST 12%", 1200, 0], ["GST 18%", 1800, 0], ["GST 28%", 2800, 0], ["GST 28% + Cess 12%", 2800, 1200],
   ],
-  VAT: [["Zero rated", 0, 0], ["Reduced 5%", 500, 0], ["Standard 20%", 2000, 0]],
+  VAT: [["Zero rated", 0, 0], ["5%", 500, 0], ["10%", 1000, 0], ["15%", 1500, 0], ["20%", 2000, 0]],
   NONE: [["No tax", 0, 0]],
 } as const;
 
@@ -38,7 +38,7 @@ export async function initializeBusiness(ctx: Ctx, input: OnboardingInput) {
   });
   const [loc] = await Location.create([{ orgId: ctx.orgId, name: input.locationName, kind: "store", isDefault: true }]);
   const rates = await TaxRate.insertMany(
-    TAX_PRESETS[input.taxMode].map(([name, rateBp, cessBp], i) => ({ orgId: ctx.orgId, name, rateBp, cessBp, isDefault: input.taxMode === "GST" ? i === 3 : i === TAX_PRESETS[input.taxMode].length - 1 })),
+    TAX_PRESETS[input.taxMode].map(([name, rateBp, cessBp], i) => ({ orgId: ctx.orgId, name, rateBp, cessBp, isDefault: input.taxMode === "GST" ? i === 3 : i === 0 })),
   );
   if (input.sample) await seedSample(ctx, String(loc._id), rates.map((r) => String(r._id)));
 }

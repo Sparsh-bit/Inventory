@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { can, isRole, type Permission, type Role } from "@/lib/permissions";
 import { auth } from "./auth";
 import { connectDb } from "./db";
-import { OrgSettings, type OrgSettingsDoc } from "./models";
+import { OrgSettings, Types, type OrgSettingsDoc } from "./models";
 
 export interface Ctx {
   userId: string;
@@ -35,15 +35,19 @@ export const loadCtx = cache(async (): Promise<Ctx | null> => {
   if (!session) return null;
   const orgId = session.session.activeOrganizationId;
   if (!orgId) return null;
-  const org = await auth.api.getFullOrganization({ headers: h, query: { organizationId: orgId, membersLimit: 0 } }).catch(() => null);
-  const member = await auth.api.getActiveMember({ headers: h }).catch(() => null);
+  const { connection } = await connectDb();
+  const db = connection.db!;
+  const [org, member] = await Promise.all([
+    db.collection("organization").findOne({ _id: new Types.ObjectId(orgId) }, { projection: { name: 1 } }),
+    db.collection("member").findOne({ organizationId: new Types.ObjectId(orgId), userId: new Types.ObjectId(session.user.id) }, { projection: { role: 1 } }),
+  ]);
   if (!org || !member || !isRole(member.role)) return null;
   return {
     userId: session.user.id,
     userName: session.user.name,
     userEmail: session.user.email,
     orgId,
-    orgName: org.name,
+    orgName: String(org.name),
     role: member.role,
     ip: h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? undefined,
     ua: h.get("user-agent") ?? undefined,

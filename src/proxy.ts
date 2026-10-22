@@ -1,13 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC = ["/", "/sign-in", "/sign-up", "/forgot-password", "/reset-password", "/verify-email", "/two-factor", "/forbidden"];
+const PUBLIC = ["/", "/manifest.webmanifest", "/apple-icon", "/sign-in", "/sign-up", "/forgot-password", "/reset-password", "/verify-email", "/two-factor", "/forbidden"];
 const SESSION_COOKIES = ["better-auth.session_token", "__Secure-better-auth.session_token"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Optimistic gate only (real checks happen server-side on every page and action).
-  const isPublic = PUBLIC.includes(pathname) || pathname.startsWith("/accept-invite/");
+  const isPublic = PUBLIC.includes(pathname) || pathname.startsWith("/accept-invite/") || pathname.startsWith("/icon");
   const hasSession = SESSION_COOKIES.some((c) => request.cookies.has(c));
   if (!isPublic && !hasSession && !pathname.startsWith("/api/")) {
     const url = new URL("/sign-in", request.url);
@@ -30,7 +30,7 @@ export function proxy(request: NextRequest) {
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    "frame-ancestors 'none'",
+    "frame-ancestors 'self'", // print pages load in a same-origin iframe
   ].join("; ");
 
   const requestHeaders = new Headers(request.headers);
@@ -38,7 +38,7 @@ export function proxy(request: NextRequest) {
   requestHeaders.set("Content-Security-Policy", csp);
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("Content-Security-Policy", csp);
-  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("X-Frame-Options", "SAMEORIGIN");
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   response.headers.set("Permissions-Policy", "camera=(self), usb=(self), serial=(self), bluetooth=(self), microphone=(), geolocation=(), payment=()");

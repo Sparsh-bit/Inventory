@@ -34,8 +34,12 @@ export class EscPos {
     for (const ch of toAscii(s)) this.buf.push(ch.charCodeAt(0));
     return this;
   }
+  /** Prints text and a newline, wrapping anything wider than the paper. */
   line(s = "") {
-    return this.text(s + "\n");
+    const t = toAscii(s);
+    if (t.length <= this.width) return this.text(t + "\n");
+    for (let i = 0; i < t.length; i += this.width) this.text(t.slice(i, i + this.width) + "\n");
+    return this;
   }
   bold(on: boolean) {
     return this.raw(ESC, 0x45, on ? 1 : 0);

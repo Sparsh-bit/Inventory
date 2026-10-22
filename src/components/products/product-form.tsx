@@ -53,12 +53,13 @@ export interface ProductFormProps {
   taxRates: { id: string; name: string }[];
   locations: { id: string; name: string; isDefault: boolean }[];
   defaults: { priceIncludesTax: boolean; taxRateId: string | null };
+  initialBarcode?: string;
 }
 
 const blankRow = (o: Partial<Row> = {}): Row => ({ key: crypto.randomUUID(), name: "", attributes: [], sku: "", barcodes: "", cost: "", price: "", mrp: "", opening: "", active: true, ...o });
 const m = (v: number | undefined) => (v ? fromMinor(v) : "");
 
-export function ProductForm({ product, categories, taxRates, locations, defaults }: ProductFormProps) {
+export function ProductForm({ product, categories, taxRates, locations, defaults, initialBarcode = "" }: ProductFormProps) {
   const router = useRouter();
   const org = useOrg();
   const { run, pending, fieldErrors } = useAction(saveProduct);
@@ -81,7 +82,7 @@ export function ProductForm({ product, categories, taxRates, locations, defaults
 
   const initialRows: Row[] = product
     ? product.variants.map((v) => blankRow({ id: v.id, name: v.name ?? "", attributes: v.attributes ?? [], sku: v.sku ?? "", barcodes: (v.barcodes ?? []).join(", "), cost: m(v.costPrice), price: m(v.salePrice), mrp: m(v.mrp), active: v.active ?? true }))
-    : [blankRow()];
+    : [blankRow({ barcodes: initialBarcode })];
   const [rows, setRows] = useState<Row[]>(initialRows);
   const [hasVariants, setHasVariants] = useState(initialRows.length > 1 || !!initialRows[0].attributes.length);
   const [attrs, setAttrs] = useState<{ name: string; values: string }[]>(() => {

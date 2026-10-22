@@ -6,12 +6,13 @@ import { productFormData } from "../form-data";
 
 export const metadata: Metadata = { title: "New product" };
 
-export default async function NewProductPage() {
+export default async function NewProductPage({ searchParams }: PageProps<"/products/new">) {
+  const { barcode } = await searchParams;
   const ctx = await requireCtx("products:write");
   return (
     <PageBody>
       <PageHeader title="New product" back={{ href: "/products", label: "Products" }} />
-      <ProductForm {...await productFormData(ctx)} />
+      <ProductForm {...await productFormData(ctx)} initialBarcode={typeof barcode === "string" ? barcode.slice(0, 64) : ""} />
     </PageBody>
   );
 }

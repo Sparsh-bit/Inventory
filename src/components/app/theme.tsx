@@ -4,16 +4,16 @@ import { useSyncExternalStore } from "react";
 export type Theme = "light" | "dark" | "system";
 const KEY = "theme";
 
-/** Runs before hydration (via next/script beforeInteractive) to avoid a flash of the wrong theme. */
-export const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("${KEY}")||"system";var d=t==="dark"||(t==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);document.documentElement.style.colorScheme=d?"dark":"light"}catch(e){}})()`;
+/** Light by default; dark only when the user picks it. Runs before hydration (via next/script beforeInteractive) to avoid a flash of the wrong theme. */
+export const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("${KEY}")||"light";var d=t==="dark"||(t==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);document.documentElement.style.colorScheme=d?"dark":"light"}catch(e){}})()`;
 
 const listeners = new Set<() => void>();
 
 function read(): Theme {
   try {
-    return (localStorage.getItem(KEY) as Theme) || "system";
+    return (localStorage.getItem(KEY) as Theme) || "light";
   } catch {
-    return "system";
+    return "light";
   }
 }
 
@@ -38,7 +38,7 @@ function subscribe(cb: () => void) {
 }
 
 export function useTheme() {
-  const theme = useSyncExternalStore(subscribe, read, () => "system" as Theme);
+  const theme = useSyncExternalStore(subscribe, read, () => "light" as Theme);
   const resolvedTheme = useSyncExternalStore(
     subscribe,
     () => (document.documentElement.classList.contains("dark") ? "dark" : "light"),

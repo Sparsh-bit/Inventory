@@ -70,6 +70,7 @@ export default async function ReceiptPrintPage({ params, searchParams }: PagePro
                     {qtyText(l.qty, l.scale)} {l.unit} × {m(l.unitPrice)}
                     {l.discount > 0 && ` (−${m(l.discount)})`}
                   </span>
+                  {l.serials.length > 0 && <span className="block text-neutral-700">S/N: {l.serials.join(", ")}</span>}
                 </td>
                 <td className="py-0.5 text-right tabular-nums">{m(l.total)}</td>
               </tr>

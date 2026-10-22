@@ -7,6 +7,7 @@ export interface CartLine {
   discount: number; // minor units
   unitPrice: number; // minor units (override or hit.salePrice)
   batchId: string | null;
+  serials: string[];
 }
 
 export interface PosCustomer {

@@ -5,6 +5,7 @@ import { productInput } from "@/lib/schemas";
 import { AppError, type Ctx } from "../context";
 import { Category, Location, Product, TaxRate, Types, type ProductDoc } from "../models";
 import { inTransaction } from "../with-auth";
+import { findInStockSerial } from "./serials";
 import { applyMoves, stockByVariant } from "./stock";
 import { audit, nextNumber } from "./system";
 
@@ -41,7 +42,7 @@ function fields(input: Input) {
   return {
     name: input.name, description: input.description, categoryId: input.categoryId, brand: input.brand,
     unit: { code: input.unitCode, scale: input.unitScale }, hsn: input.hsn, taxRateId: input.taxRateId,
-    priceIncludesTax: input.priceIncludesTax, trackBatch: input.trackBatch, reorderLevel: input.reorderLevel,
+    priceIncludesTax: input.priceIncludesTax, trackBatch: input.trackBatch, trackSerial: input.trackSerial, warrantyMonths: input.warrantyMonths, reorderLevel: input.reorderLevel,
     images: input.images, active: input.active,
   };
 }
@@ -54,6 +55,7 @@ export async function createProduct(ctx: Ctx, input: Input) {
     const opening = input.variants.map((v, i) => ({ v, id: variants[i]._id })).filter((x) => x.v.openingQty > 0);
     if (opening.length) {
       if (input.trackBatch) throw new AppError("INVALID", "Add opening stock for batch-tracked items through a purchase so batch and expiry are recorded.");
+      if (input.trackSerial) throw new AppError("INVALID", "Add stock for serial-numbered items through a purchase or a stock adjustment so each serial is recorded.");
       const loc = input.openingLocationId
         ? await Location.findOne({ orgId: ctx.orgId, _id: input.openingLocationId }, null, { session })
         : await Location.findOne({ orgId: ctx.orgId, isDefault: true }, null, { session });
@@ -81,6 +83,10 @@ export async function updateProduct(ctx: Ctx, id: string, input: Input) {
       if ([...stock.values()].some((q) => q !== 0)) throw new AppError("CONFLICT", "A variant with stock can't be removed. Mark it inactive instead.");
     }
     const variants = await prepareVariants(ctx, input, session);
+    if (existing.trackSerial !== input.trackSerial || existing.trackBatch !== input.trackBatch) {
+      const stock = await stockByVariant(ctx, existing.variants.map((v) => String(v._id)));
+      if ([...stock.values()].some((q) => q !== 0)) throw new AppError("CONFLICT", "Batch or serial tracking can only be changed while the product has no stock.");
+    }
     existing.set({ ...fields(input), variants });
     await existing.save({ session });
     await audit(ctx, "update", "product", id, `Updated product ${input.name}`, undefined, session);
@@ -111,6 +117,10 @@ export interface VariantHit {
   scale: number;
   hsn: string;
   trackBatch: boolean;
+  trackSerial: boolean;
+  warrantyMonths: number;
+  /** Set when the scanned code was a specific serial number. */
+  serial?: string;
   stock: number;
   image: string | null;
 }
@@ -125,7 +135,7 @@ async function toHits(ctx: Ctx, products: ProductDoc[], locationId?: string, onl
     return {
       productId: String(p._id), variantId: String(v._id), name: p.name, variantName: v.name ?? "", sku: v.sku, barcode: v.barcodes[0] ?? "",
       salePrice: v.salePrice, mrp: v.mrp ?? 0, costPrice: v.costPrice ?? 0, rateBp: r?.rateBp ?? 0, cessBp: r?.cessBp ?? 0,
-      inclusive: p.priceIncludesTax, unit: p.unit?.code ?? "pcs", scale: p.unit?.scale ?? 1, hsn: p.hsn ?? "", trackBatch: p.trackBatch,
+      inclusive: p.priceIncludesTax, unit: p.unit?.code ?? "pcs", scale: p.unit?.scale ?? 1, hsn: p.hsn ?? "", trackBatch: p.trackBatch, trackSerial: !!p.trackSerial, warrantyMonths: p.warrantyMonths ?? 0,
       stock: stock.get(String(v._id)) ?? 0, image: p.images?.[0] ?? null,
     };
   });
@@ -136,10 +146,16 @@ export async function findByCode(ctx: Ctx, code: string, locationId?: string): P
   const c = code.trim();
   if (!c) return null;
   const p = await Product.findOne({ orgId: ctx.orgId, active: true, $or: [{ "variants.barcodes": c }, { "variants.sku": c }] }).lean<ProductDoc>();
-  if (!p) return null;
-  const v = p.variants.find((x) => x.barcodes.includes(c)) ?? p.variants.find((x) => x.sku === c);
-  if (!v) return null;
-  return (await toHits(ctx, [p], locationId, String(v._id)))[0] ?? null;
+  if (p) {
+    const v = p.variants.find((x) => x.barcodes.includes(c)) ?? p.variants.find((x) => x.sku === c);
+    return v ? ((await toHits(ctx, [p], locationId, String(v._id)))[0] ?? null) : null;
+  }
+  // Not a product code: maybe a serial number / IMEI of an item in stock here.
+  const sn = await findInStockSerial(ctx, c, locationId);
+  if (!sn) return null;
+  const sp = await Product.findOne({ orgId: ctx.orgId, _id: sn.productId, active: true }).lean<ProductDoc>();
+  const hit = sp ? (await toHits(ctx, [sp], locationId, String(sn.variantId)))[0] : undefined;
+  return hit ? { ...hit, serial: sn.serial } : null;
 }
 
 export async function searchVariants(ctx: Ctx, q: string, locationId?: string, limit = 20): Promise<VariantHit[]> {

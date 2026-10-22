@@ -26,7 +26,7 @@ export default async function PurchasePage({ params }: PageProps<"/purchases/[id
   const money = (m: number) => formatMoney(m, s.currency, s.locale);
   const [loc, products] = await Promise.all([
     Location.findOne({ orgId: ctx.orgId, _id: po.locationId }, { name: 1 }).lean(),
-    Product.find({ orgId: ctx.orgId, _id: { $in: po.lines.map((l) => l.productId) } }, { trackBatch: 1, unit: 1, variants: 1 }).lean(),
+    Product.find({ orgId: ctx.orgId, _id: { $in: po.lines.map((l) => l.productId) } }, { trackBatch: 1, trackSerial: 1, unit: 1, variants: 1 }).lean(),
   ]);
   const prod = (pid: unknown) => products.find((p) => String(p._id) === String(pid));
   const canWrite = can(ctx.role, "purchases:write");
@@ -50,7 +50,7 @@ export default async function PurchasePage({ params }: PageProps<"/purchases/[id
               lines={po.lines.map((l) => {
                 const p = prod(l.productId);
                 const v = p?.variants.find((x) => String(x._id) === String(l.variantId));
-                return { id: String(l._id), name: l.name ?? "", sku: l.sku ?? "", barcodes: v?.barcodes ?? [], scale: l.scale ?? 1, unit: p?.unit?.code ?? "", ordered: l.qtyOrdered, received: l.qtyReceived, returned: l.qtyReturned, unitCost: l.unitCost, trackBatch: !!p?.trackBatch };
+                return { id: String(l._id), name: l.name ?? "", sku: l.sku ?? "", barcodes: v?.barcodes ?? [], scale: l.scale ?? 1, unit: p?.unit?.code ?? "", ordered: l.qtyOrdered, received: l.qtyReceived, returned: l.qtyReturned, unitCost: l.unitCost, trackBatch: !!p?.trackBatch, trackSerial: !!p?.trackSerial };
               })}
             />
           </>

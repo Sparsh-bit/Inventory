@@ -43,14 +43,14 @@ export const resumeHeldBill = withAuth("pos:sell", z.object({ id: objectId }).st
     notes: h.notes ?? "",
     customer: customer ? { id: String(customer._id), name: customer.name, phone: customer.phone, stateCode: customer.stateCode, taxId: customer.taxId, balance: customer.balance } : null,
     lines: h.lines
-      .map((l) => ({ hit: hits.find((x) => x.variantId === String(l.variantId)), qty: l.qty, discount: l.discount ?? 0, unitPrice: l.unitPrice ?? 0 }))
+      .map((l) => ({ hit: hits.find((x) => x.variantId === String(l.variantId)), qty: l.qty, discount: l.discount ?? 0, unitPrice: l.unitPrice ?? 0, serials: l.serials ?? [] }))
       .filter((l) => l.hit),
   };
 });
 
 export const refundSale = withAuth(
   "sales:return",
-  z.object({ saleId: objectId, items: z.array(z.object({ lineIndex: z.number().int().min(0), qty: z.number().int().min(0) }).strict()).min(1).max(500), refundMethod: z.enum(["cash", "card", "upi", "credit", "other"]), reason: z.string().trim().max(300) }).strict(),
+  z.object({ saleId: objectId, items: z.array(z.object({ lineIndex: z.number().int().min(0), qty: z.number().int().min(0), serials: z.array(z.string().trim().min(1).max(64)).max(500).optional() }).strict()).min(1).max(500), refundMethod: z.enum(["cash", "card", "upi", "credit", "other"]), reason: z.string().trim().max(300) }).strict(),
   async (ctx, i) => {
     const res = await returnSale(ctx, i.saleId, i.items, i.refundMethod, i.reason);
     revalidatePath("/sales");

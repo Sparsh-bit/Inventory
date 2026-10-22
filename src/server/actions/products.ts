@@ -5,6 +5,7 @@ import { objectId, productInput } from "@/lib/schemas";
 import { AppError } from "../context";
 import { Category, Product, TaxRate } from "../models";
 import { createProduct, findByCode, searchVariants, setProductActive, updateProduct } from "../services/products";
+import { inStockSerials } from "../services/serials";
 import { audit } from "../services/system";
 import { withAuth } from "../with-auth";
 
@@ -53,3 +54,5 @@ export const deleteCategory = withAuth("products:write", z.object({ id: objectId
 export const listTaxRates = withAuth("products:read", z.object({}).strict(), async (ctx) =>
   (await TaxRate.find({ orgId: ctx.orgId }).sort({ rateBp: 1 }).lean()).map((r) => ({ id: String(r._id), name: r.name, rateBp: r.rateBp })),
 );
+
+export const availableSerials = withAuth("products:read", z.object({ variantId: objectId, locationId: objectId }).strict(), (ctx, i) => inStockSerials(ctx, i.variantId, i.locationId));

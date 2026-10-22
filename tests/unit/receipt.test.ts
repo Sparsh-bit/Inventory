@@ -10,7 +10,7 @@ const data = (width: 58 | 80): ReceiptData => ({
   sale: {
     id: "x", number: "S/26-27/00001", kind: "receipt", status: "completed", date: "22 Oct 2026, 10:15", cashier: "Asha", location: "Main",
     customer: null, placeOfSupply: "27", interState: false,
-    lines: [{ name: "An extremely long product name that definitely needs wrapping on narrow paper", sku: "A", hsn: "1006", qty: 1500, scale: 1000, unit: "kg", unitPrice: 12000, mrp: 0, discount: 500, taxable: 16571, rateBp: 500, tax: 829, total: 17400, batchNo: "" }],
+    lines: [{ name: "An extremely long product name that definitely needs wrapping on narrow paper", sku: "A", hsn: "1006", qty: 1500, scale: 1000, unit: "kg", unitPrice: 12000, mrp: 0, discount: 500, taxable: 16571, rateBp: 500, tax: 829, total: 17400, batchNo: "", serials: ["IMEI-123456789012345"] }],
     subtotal: 18000, discountTotal: 500, taxableTotal: 16571, cgst: 414, sgst: 415, igst: 0, vat: 0, cess: 0, taxTotal: 829, roundOff: 0, grandTotal: 17400,
     payments: [{ method: "cash", amount: 20000 }], change: 2600, balanceDue: 0, returnOfNumber: null, notes: "",
     taxSummary: [{ rateBp: 500, taxable: 16571, cgst: 414, sgst: 415, igst: 0, vat: 0, cess: 0 }],

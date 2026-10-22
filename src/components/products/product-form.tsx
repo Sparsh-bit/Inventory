@@ -74,6 +74,8 @@ export function ProductForm({ product, categories, taxRates, locations, defaults
   const [hsn, setHsn] = useState(product?.hsn ?? "");
   const [unitCode, setUnitCode] = useState(product?.unitCode ?? "pcs");
   const [trackBatch, setTrackBatch] = useState(product?.trackBatch ?? false);
+  const [trackSerial, setTrackSerial] = useState(product?.trackSerial ?? false);
+  const [warranty, setWarranty] = useState(product?.warrantyMonths ? String(product.warrantyMonths) : "");
   const [reorder, setReorder] = useState(String(product?.reorderLevel ?? ""));
   const [images, setImages] = useState<string[]>(product?.images ?? []);
   const [openingLocationId, setOpeningLocationId] = useState(locations.find((l) => l.isDefault)?.id ?? locations[0]?.id ?? "");
@@ -158,7 +160,7 @@ export function ProductForm({ product, categories, taxRates, locations, defaults
     }
     const data: ProductInput = {
       name, description, brand, categoryId: categoryId === "none" ? null : categoryId, unitCode: unit.code, unitScale: unit.scale, hsn: hsn.trim(),
-      taxRateId: taxRateId === "none" ? null : taxRateId, priceIncludesTax: inclusive, trackBatch, reorderLevel: Number(reorder) || 0, images, active: true,
+      taxRateId: taxRateId === "none" ? null : taxRateId, priceIncludesTax: inclusive, trackBatch, trackSerial, warrantyMonths: Number(warranty) || 0, reorderLevel: Number(reorder) || 0, images, active: true,
       variants, openingLocationId: isEdit ? undefined : openingLocationId || undefined,
     };
     run({ id: product?.id ?? null, data }, {
@@ -277,7 +279,7 @@ export function ProductForm({ product, categories, taxRates, locations, defaults
                     </FormField>
                     {!isEdit && (
                       <FormField label={`Opening stock (${unit.code})`} className="col-span-2 @md:col-span-1">
-                        <Input inputMode="decimal" value={r.opening} onChange={(e) => setRow(r.key, { opening: e.target.value })} placeholder="0" disabled={trackBatch} />
+                        <Input inputMode="decimal" value={r.opening} onChange={(e) => setRow(r.key, { opening: e.target.value })} placeholder="0" disabled={trackBatch || trackSerial} />
                       </FormField>
                     )}
                   </div>
@@ -349,7 +351,7 @@ export function ProductForm({ product, categories, taxRates, locations, defaults
           <CardContent>
             <FieldGroup>
               <FormField label="Unit">
-                <SelectField value={unitCode} onValueChange={setUnitCode} options={UNITS.map((u) => [u.code, u.label] as const)} disabled={isEdit} />
+                <SelectField value={unitCode} onValueChange={setUnitCode} options={UNITS.filter((u) => !trackSerial || u.scale === 1).map((u) => [u.code, u.label] as const)} disabled={isEdit} />
               </FormField>
               <FormField label="Low stock alert at" description="Shows on the dashboard when stock falls to this level.">
                 <Input inputMode="numeric" value={reorder} onChange={(e) => setReorder(e.target.value.replace(/\D/g, ""))} placeholder="0" />
@@ -359,9 +361,21 @@ export function ProductForm({ product, categories, taxRates, locations, defaults
                   Track batches & expiry
                   <span className="text-xs text-muted-foreground">For medicines, food and cosmetics.</span>
                 </Label>
-                <Switch id="batch" checked={trackBatch} onCheckedChange={setTrackBatch} disabled={isEdit} />
+                <Switch id="batch" checked={trackBatch} onCheckedChange={(v) => { setTrackBatch(v); if (v) setTrackSerial(false); }} disabled={isEdit} />
               </div>
-              {!isEdit && locations.length > 1 && !trackBatch && (
+              <div className="flex items-center justify-between gap-3">
+                <Label htmlFor="serial" className="flex flex-col items-start gap-0.5 font-normal">
+                  Track serial numbers / IMEI
+                  <span className="text-xs text-muted-foreground">Phones, electronics, appliances. Each unit is scanned in and out.</span>
+                </Label>
+                <Switch id="serial" checked={trackSerial} onCheckedChange={(v) => { setTrackSerial(v); if (v) { setTrackBatch(false); setUnitCode("pcs"); } }} disabled={isEdit} />
+              </div>
+              {trackSerial && (
+                <FormField label="Warranty (months)" optional description="Shown on serial lookups so you can check warranty claims.">
+                  <Input inputMode="numeric" value={warranty} onChange={(e) => setWarranty(e.target.value.replace(/\D/g, "").slice(0, 3))} placeholder="12" />
+                </FormField>
+              )}
+              {!isEdit && locations.length > 1 && !trackBatch && !trackSerial && (
                 <FormField label="Opening stock location">
                   <SelectField value={openingLocationId} onValueChange={setOpeningLocationId} options={locations.map((l) => [l.id, l.name] as const)} />
                 </FormField>

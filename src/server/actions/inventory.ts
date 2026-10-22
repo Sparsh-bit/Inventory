@@ -12,7 +12,7 @@ const qtyInt = z.number().int().min(-1e9).max(1e9);
 
 export const adjust = withAuth(
   "stock:write",
-  z.object({ locationId: objectId, reason: z.string().trim().min(2, "Give a reason").max(200), lines: z.array(z.object({ variantId: objectId, batchId: objectId.nullable(), qtyDelta: qtyInt.refine((n) => n !== 0, "Quantity can't be zero") }).strict()).min(1).max(500) }).strict(),
+  z.object({ locationId: objectId, reason: z.string().trim().min(2, "Give a reason").max(200), lines: z.array(z.object({ variantId: objectId, batchId: objectId.nullable(), qtyDelta: qtyInt.refine((n) => n !== 0, "Quantity can't be zero"), serials: z.array(z.string().trim().min(1).max(64)).max(2000).optional() }).strict()).min(1).max(500) }).strict(),
   async (ctx, input) => {
     await adjustStock(ctx, input);
     revalidatePath("/inventory");
@@ -22,7 +22,7 @@ export const adjust = withAuth(
 
 export const transfer = withAuth(
   "stock:write",
-  z.object({ fromId: objectId, toId: objectId, note: z.string().trim().max(200).default(""), lines: z.array(z.object({ variantId: objectId, batchId: objectId.nullable(), qty: z.number().int().min(1).max(1e9) }).strict()).min(1).max(500) }).strict(),
+  z.object({ fromId: objectId, toId: objectId, note: z.string().trim().max(200).default(""), lines: z.array(z.object({ variantId: objectId, batchId: objectId.nullable(), qty: z.number().int().min(1).max(1e9), serials: z.array(z.string().trim().min(1).max(64)).max(2000).optional() }).strict()).min(1).max(500) }).strict(),
   async (ctx, input) => {
     await transferStock(ctx, input);
     revalidatePath("/inventory");
@@ -32,7 +32,7 @@ export const transfer = withAuth(
 
 export const count = withAuth(
   "stock:write",
-  z.object({ locationId: objectId, lines: z.array(z.object({ variantId: objectId, batchId: objectId.nullable(), counted: z.number().int().min(0).max(1e9) }).strict()).min(1).max(2000) }).strict(),
+  z.object({ locationId: objectId, lines: z.array(z.object({ variantId: objectId, batchId: objectId.nullable(), counted: z.number().int().min(0).max(1e9), serials: z.array(z.string().trim().min(1).max(64)).max(2000).optional() }).strict()).min(1).max(2000) }).strict(),
   async (ctx, input) => {
     const r = await postStockCount(ctx, input);
     revalidatePath("/inventory");

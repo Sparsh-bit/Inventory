@@ -23,6 +23,7 @@ interface Line {
   scale: number;
   unit: string;
   total: number;
+  serials: string[];
 }
 
 export function SaleActions({ saleId, canReturn, canVoid, hasCustomer, lines }: { saleId: string; canReturn: boolean; canVoid: boolean; hasCustomer: boolean; lines: Line[] }) {
@@ -31,16 +32,18 @@ export function SaleActions({ saleId, canReturn, canVoid, hasCustomer, lines }: 
   const [retOpen, setRetOpen] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
   const [qty, setQty] = useState<Record<number, string>>({});
+  const [picked, setPicked] = useState<Record<number, string[]>>({});
   const [method, setMethod] = useState("cash");
   const [reason, setReason] = useState("");
   const ret = useAction(refundSale);
   const voi = useAction(cancelSale);
 
+  const qtyOf = (l: Line) => (l.serials.length ? (picked[l.index]?.length ?? 0) : Math.round(Number(qty[l.index] || 0) * l.scale));
   const items = lines
-    .map((l) => ({ lineIndex: l.index, qty: Math.round(Number(qty[l.index] || 0) * l.scale) }))
+    .map((l) => ({ lineIndex: l.index, qty: qtyOf(l), ...(l.serials.length ? { serials: picked[l.index] ?? [] } : {}) }))
     .filter((i) => Number.isFinite(i.qty) && i.qty > 0);
   const refund = lines.reduce((a, l) => {
-    const q = Math.round(Number(qty[l.index] || 0) * l.scale);
+    const q = qtyOf(l);
     return a + (q > 0 ? Math.round((l.total * q) / l.sold) : 0);
   }, 0);
 
@@ -78,10 +81,23 @@ export function SaleActions({ saleId, canReturn, canVoid, hasCustomer, lines }: 
                     <span className="block truncate">{l.name}</span>
                     <span className="text-xs text-muted-foreground">Returnable: {formatQty(l.sold - l.returned, l.scale)} {l.unit}</span>
                   </span>
+                  {l.serials.length ? (
+                    <div className="flex max-w-56 flex-wrap justify-end gap-1">
+                      {l.serials.map((sn) => {
+                        const on = picked[l.index]?.includes(sn) ?? false;
+                        return (
+                          <button key={sn} type="button" aria-pressed={on} onClick={() => setPicked((p) => ({ ...p, [l.index]: on ? (p[l.index] ?? []).filter((x) => x !== sn) : [...(p[l.index] ?? []), sn] }))} className={`rounded border px-1.5 py-0.5 font-mono text-[11px] ${on ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted"}`}>
+                            {sn}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
                   <Input aria-label={`Return quantity for ${l.name}`} className="w-20 text-center" inputMode="decimal" placeholder="0" disabled={max <= 0} value={qty[l.index] ?? ""} onChange={(e) => {
                     const v = e.target.value;
                     if (v === "" || (Number(v) >= 0 && Number(v) <= max)) setQty((q) => ({ ...q, [l.index]: v }));
                   }} />
+                  )}
                 </li>
               );
             })}

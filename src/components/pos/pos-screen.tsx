@@ -27,6 +27,7 @@ import { CartLineRow } from "./cart-line";
 import { CustomerPicker } from "./customer-picker";
 import { HeldBills } from "./held-bills";
 import { PaymentDialog, type Tender } from "./payment-dialog";
+import { SerialDialog } from "./serial-dialog";
 import { SaleComplete, type CompletedSale } from "./sale-complete";
 import type { CartLine, PosConfig, PosCustomer } from "./types";
 
@@ -81,7 +82,36 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
   );
   const itemCount = lines.reduce((a, l) => a + (l.hit.scale === 1 ? l.qty : 1), 0);
 
+  const [serialFor, setSerialFor] = useState<{ hit: VariantHit; key: string | null; serials: string[] } | null>(null);
+
+  const linesRef = useRef(lines);
+  useEffect(() => {
+    linesRef.current = lines;
+  });
+
   const addHit = useCallback((hit: VariantHit, qty?: number) => {
+    if (hit.trackSerial) {
+      const existing = linesRef.current.find((l) => l.hit.variantId === hit.variantId);
+      if (!hit.serial) {
+        // No specific unit scanned: ask which serial(s) are being sold.
+        setSerialFor({ hit, key: existing?.key ?? null, serials: existing?.serials ?? [] });
+        return;
+      }
+      if (existing?.serials.includes(hit.serial)) {
+        toast.error(`${hit.serial} is already in the cart`);
+        return;
+      }
+      const serial = hit.serial;
+      setLines((ls) => {
+        const cur = ls.find((l) => l.hit.variantId === hit.variantId);
+        if (cur) {
+          const serials = [...cur.serials, serial];
+          return [{ ...cur, serials, qty: serials.length }, ...ls.filter((l) => l.key !== cur.key)];
+        }
+        return [{ key: crypto.randomUUID(), hit, qty: 1, discount: 0, unitPrice: hit.salePrice, batchId: null, serials: [serial] }, ...ls];
+      });
+      return;
+    }
     setLines((ls) => {
       const i = ls.findIndex((l) => l.hit.variantId === hit.variantId && !l.batchId);
       if (i >= 0) {
@@ -89,7 +119,7 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
         copy[i] = { ...copy[i], qty: copy[i].qty + (qty ?? hit.scale) };
         return [copy[i], ...copy.filter((_, j) => j !== i)];
       }
-      return [{ key: crypto.randomUUID(), hit, qty: qty ?? hit.scale, discount: 0, unitPrice: hit.salePrice, batchId: null }, ...ls];
+      return [{ key: crypto.randomUUID(), hit, qty: qty ?? hit.scale, discount: 0, unitPrice: hit.salePrice, batchId: null, serials: [] }, ...ls];
     });
   }, []);
 
@@ -109,12 +139,12 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
     [locationId, addHit, org, router],
   );
 
-  useScanner(handleCode, !payOpen && !done);
+  useScanner(handleCode, !payOpen && !done && !serialFor);
 
   function payload() {
     return {
       locationId, customerId: customer?.id ?? null, billDiscount, kind, notes: "", heldId,
-      lines: lines.map((l) => ({ variantId: l.hit.variantId, qty: l.qty, discount: l.discount, batchId: l.batchId, ...(l.unitPrice !== l.hit.salePrice ? { unitPrice: l.unitPrice } : {}) })),
+      lines: lines.map((l) => ({ variantId: l.hit.variantId, qty: l.qty, discount: l.discount, batchId: l.batchId, ...(l.serials.length ? { serials: l.serials } : {}), ...(l.unitPrice !== l.hit.salePrice ? { unitPrice: l.unitPrice } : {}) })),
     };
   }
 
@@ -157,7 +187,7 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
     if (lines.length && !confirm("Replace the current cart with the held bill?")) return;
     const res = await resumeHeldBill({ id });
     if (!res.ok) return void toast.error(res.error);
-    setLines(res.data.lines.map((l) => ({ key: crypto.randomUUID(), hit: l.hit!, qty: l.qty, discount: l.discount, unitPrice: l.unitPrice, batchId: null })));
+    setLines(res.data.lines.map((l) => ({ key: crypto.randomUUID(), hit: l.hit!, qty: l.qty, discount: l.discount, unitPrice: l.unitPrice, batchId: null, serials: l.serials ?? [] })));
     setCustomer(res.data.customer);
     setBillDiscount(res.data.billDiscount);
     setKind(res.data.kind);
@@ -213,6 +243,7 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
               allowNegative={config.allowNegativeStock}
               onChange={(patch) => setLines((ls) => ls.map((x) => (x.key === l.key ? { ...x, ...patch } : x)))}
               onRemove={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}
+              onEditSerials={() => setSerialFor({ hit: l.hit, key: l.key, serials: l.serials })}
             />
           ))}
         </ul>
@@ -393,6 +424,23 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
         onKindChange={setKind}
         onPay={pay}
       />
+      {serialFor && (
+        <SerialDialog
+          hit={serialFor.hit}
+          locationId={locationId}
+          initial={serialFor.serials}
+          onClose={() => setSerialFor(null)}
+          onDone={(serials) => {
+            const { hit, key } = serialFor;
+            setLines((ls) => {
+              const rest = ls.filter((l) => l.key !== key);
+              const line = ls.find((l) => l.key === key);
+              return [{ ...(line ?? { key: crypto.randomUUID(), hit, discount: 0, unitPrice: hit.salePrice, batchId: null }), serials, qty: serials.length }, ...rest];
+            });
+            setSerialFor(null);
+          }}
+        />
+      )}
       <HeldBills open={heldOpen} onOpenChange={setHeldOpen} locationId={locationId} onResume={resume} />
       <SaleComplete sale={done} onNext={() => { setDone(null); reset(); }} />
     </div>

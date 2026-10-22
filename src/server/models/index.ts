@@ -124,6 +124,8 @@ const productSchema = new Schema(
     taxRateId: { type: ObjectId, default: null },
     priceIncludesTax: { type: Boolean, default: true },
     trackBatch: { type: Boolean, default: false },
+    trackSerial: { type: Boolean, default: false },
+    warrantyMonths: { type: Number, default: 0, min: 0, max: 600 },
     reorderLevel: { type: Number, default: 0, min: 0 },
     images: { type: [String], default: [] },
     active: { type: Boolean, default: true },
@@ -307,6 +309,7 @@ const saleLineSchema = new Schema(
     cess: Number,
     total: Number,
     returnedQty: { type: Number, default: 0 },
+    serials: { type: [String], default: [] },
     sourceLine: { type: Number, default: null }, // index into original sale, for returns
   },
   { _id: false },
@@ -351,14 +354,97 @@ const saleSchema = new Schema(
     notes: { type: String, default: "" },
     voidReason: String,
     completedAt: Date,
+    // Offline sales (synced from a till's own series)
+    clientId: { type: String, default: null },
+    deviceCode: { type: String, default: null },
+    syncIssues: { type: [{ code: String, message: String, _id: false }], default: [] },
+    // GST e-invoice / e-way bill
+    einvoice: {
+      status: { type: String, enum: ["none", "generated", "cancelled", "failed"], default: "none" },
+      irn: String,
+      ackNo: String,
+      ackDt: String,
+      signedQr: String,
+      ewbNo: String,
+      ewbDt: String,
+      ewbValidTill: String,
+      errors: { type: [String], default: [] },
+      cancelledAt: Date,
+    },
   },
   opts,
 );
+saleSchema.index({ orgId: 1, clientId: 1 }, { unique: true, partialFilterExpression: { clientId: { $type: "string" } } });
+saleSchema.index({ orgId: 1, "syncIssues.0": 1 }, { sparse: true });
 saleSchema.index({ orgId: 1, number: 1 }, { unique: true, partialFilterExpression: { number: { $type: "string" } } });
 saleSchema.index({ orgId: 1, status: 1, completedAt: -1 });
 saleSchema.index({ orgId: 1, customerId: 1, completedAt: -1 });
 saleSchema.index({ orgId: 1, returnOf: 1 });
 export const Sale = model("Sale", saleSchema);
+
+/* ---------------- serial numbers ---------------- */
+
+const serialSchema = new Schema(
+  {
+    orgId,
+    productId: { type: ObjectId, required: true },
+    variantId: { type: ObjectId, required: true },
+    serial: { type: String, required: true, trim: true },
+    status: { type: String, enum: ["in_stock", "sold", "returned", "written_off"], default: "in_stock" },
+    locationId: { type: ObjectId, required: true },
+    purchaseId: { type: ObjectId, default: null },
+    saleId: { type: ObjectId, default: null },
+    saleNumber: { type: String, default: null },
+    customerId: { type: ObjectId, default: null },
+    soldAt: { type: Date, default: null },
+    warrantyUntil: { type: Date, default: null },
+    history: { type: [{ at: Date, event: String, ref: String, _id: false }], default: [] },
+  },
+  opts,
+);
+serialSchema.index({ orgId: 1, variantId: 1, serial: 1 }, { unique: true });
+serialSchema.index({ orgId: 1, serial: 1 });
+serialSchema.index({ orgId: 1, variantId: 1, locationId: 1, status: 1 });
+export const SerialNumber = model("SerialNumber", serialSchema);
+
+/* ---------------- devices (offline tills) ---------------- */
+
+const deviceSchema = new Schema(
+  {
+    orgId,
+    code: { type: String, required: true }, // T1, T2, ...
+    name: { type: String, default: "" },
+    tokenHash: { type: String, required: true },
+    lastSeq: { type: Map, of: Number, default: {} }, // per "<docType>:<fy>" highest synced number
+    registeredBy: String,
+    lastSyncAt: Date,
+  },
+  opts,
+);
+deviceSchema.index({ orgId: 1, code: 1 }, { unique: true });
+deviceSchema.index({ orgId: 1, tokenHash: 1 }, { unique: true });
+export const Device = model("Device", deviceSchema);
+
+/* ---------------- e-invoice credentials ---------------- */
+
+const einvoiceConfigSchema = new Schema(
+  {
+    orgId: { type: ObjectId, required: true, unique: true },
+    enabled: { type: Boolean, default: false },
+    environment: { type: String, enum: ["sandbox", "production"], default: "sandbox" },
+    baseUrl: { type: String, default: "https://einv-apisandbox.nic.in" },
+    paths: {
+      auth: { type: String, default: "/eivital/v1.04/auth" },
+      invoice: { type: String, default: "/eicore/v1.03/Invoice" },
+      cancel: { type: String, default: "/eicore/v1.03/Invoice/Cancel" },
+      ewb: { type: String, default: "/eiewb/v1.03/ewaybill" },
+    },
+    secrets: { type: String, default: "" }, // AES-256-GCM encrypted JSON {clientId, clientSecret, username, password, publicKey}
+    token: { type: String, default: "" }, // encrypted {authToken, sek, expiresAt}
+  },
+  opts,
+);
+export const EinvoiceConfig = model("EinvoiceConfig", einvoiceConfigSchema);
 
 /* ---------------- system ---------------- */
 

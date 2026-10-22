@@ -100,7 +100,7 @@ export async function applyImport(ctx: Ctx, kind: ImportKind, rows: RawRow[]) {
         }
         await createProduct(ctx, {
           name: first.name, description: "", brand: first.brand, categoryId: await categoryId(first.category), unitCode: first.unit, unitScale: first.scale, hsn: first.hsn,
-          taxRateId: await rateId(first.taxRateBp), priceIncludesTax: settings?.pricesIncludeTax ?? true, trackBatch: false, reorderLevel: first.reorder, images: [], active: true,
+          taxRateId: await rateId(first.taxRateBp), priceIncludesTax: settings?.pricesIncludeTax ?? true, trackBatch: false, trackSerial: false, warrantyMonths: 0, reorderLevel: first.reorder, images: [], active: true,
           openingLocationId: loc ? String(loc._id) : undefined,
           variants: group.map((r) => ({ name: r.variant, sku: r.sku, barcodes: r.barcode ? [r.barcode] : [], attributes: r.variant ? [{ name: "Variant", value: r.variant }] : [], costPrice: r.cost, salePrice: r.price, mrp: r.mrp, active: true, openingQty: r.opening })),
         });

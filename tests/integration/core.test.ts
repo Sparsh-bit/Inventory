@@ -165,6 +165,42 @@ describe("stock & sales invariants", () => {
     expect(sale!.balanceDue).toBe(0);
   });
 
+  it("tracks serial numbers from purchase to sale to return", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 0, { trackSerial: true, warrantyMonths: 12 });
+    const { id: supplierId } = await svc.parties.saveParty(c, null, { kind: "supplier", name: "Phones Inc", phone: "", email: "", taxId: "", stateCode: "", address: {}, creditLimit: 0, openingBalance: 0, notes: "" });
+    const { id: poId } = await svc.purchases.savePurchaseOrder(c, null, { supplierId, locationId: loc, expectedDate: null, supplierInvoiceNo: "", notes: "", lines: [{ variantId, qty: 3, unitCost: 500 }] });
+    const lineId = String((await svc.models.PurchaseOrder.findOne({ orgId: c.orgId, _id: poId }).lean())!.lines[0]._id);
+    await expect(svc.purchases.receivePurchase(c, poId, [{ lineId, qty: 3, serials: ["IMEI-1", "IMEI-2"] }])).rejects.toThrow(/exactly 3/);
+    await svc.purchases.receivePurchase(c, poId, [{ lineId, qty: 3, serials: ["IMEI-1", "IMEI-2", "IMEI-3"] }]);
+
+    // A serial scan resolves to its product.
+    const hit = await svc.products.findByCode(c, "IMEI-2", loc);
+    expect(hit).toMatchObject({ variantId, serial: "IMEI-2" });
+
+    // Selling needs serials, and the same serial can never be sold twice, even concurrently.
+    await expect(svc.sales.completeSale(c, cashSale(loc, variantId))).rejects.toThrow(/serial/);
+    const sell = (serial: string) => svc.sales.completeSale(c, { ...cashSale(loc, variantId), lines: [{ variantId, qty: 1, discount: 0, serials: [serial] }] });
+    const race = await Promise.allSettled([sell("IMEI-1"), sell("IMEI-1")]);
+    expect(race.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const sold = await svc.models.SerialNumber.findOne({ orgId: c.orgId, serial: "IMEI-1" }).lean();
+    expect(sold).toMatchObject({ status: "sold" });
+    expect(sold!.warrantyUntil).toBeTruthy();
+    expect(await svc.products.findByCode(c, "IMEI-1", loc)).toBeNull();
+
+    // Return brings the serial back; only serials from that bill are accepted.
+    const saleId = String(sold!.saleId);
+    await expect(svc.sales.returnSale(c, saleId, [{ lineIndex: 0, qty: 1, serials: ["IMEI-3"] }], "cash", "")).rejects.toThrow(/not on this bill/);
+    await svc.sales.returnSale(c, saleId, [{ lineIndex: 0, qty: 1, serials: ["IMEI-1"] }], "cash", "faulty");
+    expect(await svc.models.SerialNumber.findOne({ orgId: c.orgId, serial: "IMEI-1" }).lean()).toMatchObject({ status: "in_stock", saleId: null });
+
+    // Purchase return removes the serial from stock.
+    await svc.purchases.returnPurchase(c, poId, [{ lineId, qty: 1, serials: ["IMEI-3"] }]);
+    expect(await svc.models.SerialNumber.findOne({ orgId: c.orgId, serial: "IMEI-3" }).lean()).toMatchObject({ status: "returned" });
+    expect((await svc.models.StockLevel.findOne({ orgId: c.orgId, variantId }).lean())!.qty).toBe(2);
+  });
+
   it("receives purchases partially then fully, with batches and FEFO sales", async () => {
     const c = ctx();
     const loc = await business(c);

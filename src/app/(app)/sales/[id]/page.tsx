@@ -49,7 +49,7 @@ export default async function SalePage({ params }: PageProps<"/sales/[id]">) {
             canReturn={returnable && can(ctx.role, "sales:return")}
             canVoid={!isReturn && sale.status === "completed" && can(ctx.role, "sales:void")}
             hasCustomer={!!sale.customerId}
-            lines={sale.lines.map((l, i) => ({ index: i, name: l.name ?? "", sold: l.qty, returned: l.returnedQty ?? 0, scale: l.scale ?? 1, unit: l.unit ?? "", total: l.total ?? 0 }))}
+            lines={sale.lines.map((l, i) => ({ index: i, name: l.name ?? "", sold: l.qty, returned: l.returnedQty ?? 0, scale: l.scale ?? 1, unit: l.unit ?? "", total: l.total ?? 0, serials: l.serials ?? [] }))}
           />
         }
       />
@@ -76,6 +76,11 @@ export default async function SalePage({ params }: PageProps<"/sales/[id]">) {
                       {l.batchNo && ` · Batch ${l.batchNo}`}
                       {(l.returnedQty ?? 0) > 0 && <span className="text-destructive"> · {formatQty(l.returnedQty ?? 0, l.scale ?? 1)} returned</span>}
                     </span>
+                    {(l.serials?.length ?? 0) > 0 && (
+                      <span className="mt-1 flex flex-wrap gap-1">
+                        {l.serials.map((sn) => <Link key={sn} href={`/inventory/serials?q=${encodeURIComponent(sn)}`} className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[11px] hover:underline">{sn}</Link>)}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{formatQty(l.qty, l.scale ?? 1)} {l.unit}</TableCell>
                   <TableCell className="hidden text-right tabular-nums sm:table-cell">

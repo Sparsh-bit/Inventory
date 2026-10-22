@@ -10,7 +10,7 @@ export interface ReceiptData {
   sale: {
     id: string; number: string; kind: "receipt" | "tax_invoice" | "return"; status: string; date: string; cashier: string; location: string;
     customer: { name: string; phone: string; taxId: string; address: string } | null; placeOfSupply: string; interState: boolean;
-    lines: { name: string; sku: string; hsn: string; qty: number; scale: number; unit: string; unitPrice: number; mrp: number; discount: number; taxable: number; rateBp: number; tax: number; total: number; batchNo: string }[];
+    lines: { name: string; sku: string; hsn: string; qty: number; scale: number; unit: string; unitPrice: number; mrp: number; discount: number; taxable: number; rateBp: number; tax: number; total: number; batchNo: string; serials: string[] }[];
     subtotal: number; discountTotal: number; taxableTotal: number; cgst: number; sgst: number; igst: number; vat: number; cess: number; taxTotal: number; roundOff: number; grandTotal: number;
     payments: { method: string; amount: number }[]; change: number; balanceDue: number; returnOfNumber: string | null; notes: string;
     taxSummary: { rateBp: number; taxable: number; cgst: number; sgst: number; igst: number; vat: number; cess: number }[];
@@ -60,6 +60,7 @@ export function receiptToEscPos(d: ReceiptData, opts: { openDrawer?: boolean } =
     p.line(l.name + (d.org.showHsn && l.hsn ? ` [${l.hsn}]` : ""));
     p.cols(`  ${qtyText(l.qty, l.scale)} ${l.unit} x ${m(l.unitPrice)}`, m(l.total));
     if (l.discount) p.line(`  Discount -${m(l.discount)}`);
+    if (l.serials.length) p.line(`  S/N: ${l.serials.join(", ")}`);
   }
   p.divider();
   p.cols("Subtotal", m(d.sale.subtotal));

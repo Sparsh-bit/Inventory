@@ -43,13 +43,17 @@ export const productInput = z
     taxRateId: objectId.nullable().default(null),
     priceIncludesTax: z.boolean().default(true),
     trackBatch: z.boolean().default(false),
+    trackSerial: z.boolean().default(false),
+    warrantyMonths: z.number().int().min(0).max(600).default(0),
     reorderLevel: z.number().int().min(0).max(1e9).default(0),
     images: z.array(z.string().regex(/^\/api\/files\/[a-f0-9]{32}\.(webp|png|jpg)$/)).max(6).default([]),
     active: z.boolean().default(true),
     variants: z.array(variantInput).min(1).max(100),
     openingLocationId: objectId.optional(),
   })
-  .strict();
+  .strict()
+  .refine((p) => !(p.trackSerial && p.trackBatch), { message: "Choose either batch tracking or serial numbers, not both", path: ["trackSerial"] })
+  .refine((p) => !(p.trackSerial && p.unitScale !== 1), { message: "Serial-numbered items must be counted in whole units", path: ["trackSerial"] });
 export type ProductInput = z.input<typeof productInput>;
 
 export const partyInput = z
@@ -75,6 +79,7 @@ export const saleLineInput = z
     unitPrice: money.optional(), // honoured only with price:override
     discount: money.default(0),
     batchId: objectId.nullable().optional(),
+    serials: z.array(z.string().trim().min(1).max(64)).max(500).optional(),
   })
   .strict();
 

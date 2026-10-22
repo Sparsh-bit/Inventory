@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { CartLine } from "./types";
 
-export function CartLineRow({ line, total, locationId, allowNegative, onChange, onRemove }: { line: CartLine; total: number; locationId: string; allowNegative: boolean; onChange: (patch: Partial<CartLine>) => void; onRemove: () => void }) {
+export function CartLineRow({ line, total, locationId, allowNegative, onChange, onRemove, onEditSerials }: { line: CartLine; total: number; locationId: string; allowNegative: boolean; onChange: (patch: Partial<CartLine>) => void; onRemove: () => void; onEditSerials: () => void }) {
   const org = useOrg();
   const { hit } = line;
   const step = hit.scale; // one whole unit
@@ -37,6 +37,12 @@ export function CartLineRow({ line, total, locationId, allowNegative, onChange, 
             </span>
           </button>
         </LineEditor>
+        {hit.trackSerial ? (
+          <button type="button" onClick={onEditSerials} className="mt-1.5 flex flex-wrap items-center gap-1 text-left" aria-label={`Edit serial numbers for ${hit.name}`}>
+            {line.serials.map((s) => <span key={s} className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[11px]">{s}</span>)}
+            <span className="text-xs text-primary underline-offset-2 hover:underline">{line.serials.length ? "Edit" : "Add serials"}</span>
+          </button>
+        ) : (
         <div className="mt-1.5 flex items-center gap-1.5">
           <Button variant="outline" size="icon-xs" aria-label={`Decrease ${hit.name}`} onClick={() => (line.qty - step <= 0 ? onRemove() : onChange({ qty: line.qty - step }))}>
             <Minus />
@@ -48,6 +54,7 @@ export function CartLineRow({ line, total, locationId, allowNegative, onChange, 
           <span className="text-xs text-muted-foreground">{hit.unit}</span>
           {short && <Badge variant="destructive" className="h-5 px-1.5 text-[10px]">Only {formatQty(hit.stock, hit.scale)}</Badge>}
         </div>
+        )}
       </div>
       <div className="flex flex-col items-end justify-between">
         <span className="text-sm font-semibold tabular-nums">{org.money(total)}</span>

@@ -116,6 +116,7 @@ export default async function InvoicePrintPage({ params, searchParams }: PagePro
                 <td className="p-1.5">
                   {l.name}
                   {l.batchNo && <span className="block text-neutral-500">Batch {l.batchNo}</span>}
+                  {l.serials.length > 0 && <span className="block text-neutral-500">S/N: {l.serials.join(", ")}</span>}
                 </td>
                 {gst && <td className="p-1.5">{l.hsn || "—"}</td>}
                 <td className="p-1.5 text-right tabular-nums">{qtyText(l.qty, l.scale)} {l.unit}</td>

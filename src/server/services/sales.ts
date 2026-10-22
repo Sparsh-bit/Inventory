@@ -8,6 +8,7 @@ import { AppError, type Ctx } from "../context";
 import { Batch, Location, OrgSettings, Party, Sale, type OrgSettingsDoc, type SaleDoc } from "../models";
 import { inTransaction } from "../with-auth";
 import { getVariantHits, type VariantHit } from "./products";
+import { cleanSerials, restoreSerials, sellSerials } from "./serials";
 import { applyMoves, pickBatchesFefo } from "./stock";
 import { audit, nextNumber } from "./system";
 
@@ -24,6 +25,7 @@ interface PricedLine {
   batchId: string | null;
   batchNo?: string;
   unitCost: number;
+  serials: string[];
 }
 
 async function priceLines(ctx: Ctx, input: Input, session?: ClientSession): Promise<PricedLine[]> {
@@ -35,7 +37,9 @@ async function priceLines(ctx: Ctx, input: Input, session?: ClientSession): Prom
     if (!hit) throw new AppError("INVALID", "One of the items is no longer available. Remove it and try again.");
     const unitPrice = override && l.unitPrice !== undefined ? l.unitPrice : hit.salePrice;
     if (!hit.trackBatch || !session) {
-      out.push({ hit, qty: l.qty, unitPrice, discount: l.discount, batchId: null, unitCost: hit.costPrice });
+      // Serials are mandatory when the sale is completed (session); held bills may be partial.
+      const serials = hit.trackSerial && session ? cleanSerials(l.serials, l.qty, hit.name) : (l.serials ?? []);
+      out.push({ hit, qty: l.qty, unitPrice, discount: l.discount, batchId: null, unitCost: hit.costPrice, serials });
       continue;
     }
     const parts = l.batchId ? [{ batchId: l.batchId, qty: l.qty }] : await pickBatchesFefo(ctx, hit.variantId, input.locationId, l.qty, session);
@@ -47,7 +51,7 @@ async function priceLines(ctx: Ctx, input: Input, session?: ClientSession): Prom
       if (!b) throw new AppError("INVALID", "Batch not found");
       const d = i === parts.length - 1 ? discountLeft : Math.round((l.discount * p.qty) / l.qty);
       discountLeft -= d;
-      out.push({ hit, qty: p.qty, unitPrice, discount: d, batchId: p.batchId, batchNo: b.batchNo, unitCost: b.costPrice || hit.costPrice });
+      out.push({ hit, qty: p.qty, unitPrice, discount: d, batchId: p.batchId, batchNo: b.batchNo, unitCost: b.costPrice || hit.costPrice, serials: [] });
     });
   }
   return out;
@@ -68,7 +72,7 @@ function saleLines(lines: PricedLine[], b: ReturnType<typeof computeBill>) {
     productId: l.hit.productId, variantId: l.hit.variantId, batchId: l.batchId, batchNo: l.batchNo,
     name: [l.hit.name, l.hit.variantName].filter(Boolean).join(" - "), sku: l.hit.sku, hsn: l.hit.hsn, unit: l.hit.unit, scale: l.hit.scale,
     qty: l.qty, unitPrice: l.unitPrice, mrp: l.hit.mrp, unitCost: l.unitCost, inclusive: l.hit.inclusive, rateBp: l.hit.rateBp, cessBp: l.hit.cessBp,
-    discount: b.lines[i].discount, taxable: b.lines[i].taxable, cgst: b.lines[i].cgst, sgst: b.lines[i].sgst, igst: b.lines[i].igst,
+    serials: l.serials, discount: b.lines[i].discount, taxable: b.lines[i].taxable, cgst: b.lines[i].cgst, sgst: b.lines[i].sgst, igst: b.lines[i].igst,
     vat: b.lines[i].vat, cess: b.lines[i].cess, total: b.lines[i].total,
   }));
 }
@@ -144,6 +148,9 @@ export async function completeSale(ctx: Ctx, input: Input) {
       session,
       { allowNegative: settings.allowNegativeStock },
     );
+    for (const l of lines.filter((x) => x.serials.length)) {
+      await sellSerials(ctx, { variantId: l.hit.variantId, locationId: input.locationId, serials: l.serials, saleId, saleNumber: number, customerId: customer ? String(customer._id) : null, warrantyMonths: l.hit.warrantyMonths }, session);
+    }
     if (customer && balanceDue > 0) await Party.updateOne({ orgId: ctx.orgId, _id: customer._id }, { $inc: { balance: balanceDue } }, { session });
     await audit(ctx, "complete", "sale", saleId, `Sale ${number}`, undefined, session);
     return { saleId, number };
@@ -179,7 +186,7 @@ export async function deleteHeld(ctx: Ctx, id: string) {
   await Sale.deleteOne({ orgId: ctx.orgId, _id: id, status: "held" });
 }
 
-export async function returnSale(ctx: Ctx, saleId: string, items: { lineIndex: number; qty: number }[], refundMethod: "cash" | "card" | "upi" | "credit" | "other", reason: string) {
+export async function returnSale(ctx: Ctx, saleId: string, items: { lineIndex: number; qty: number; serials?: string[] }[], refundMethod: "cash" | "card" | "upi" | "credit" | "other", reason: string) {
   return inTransaction(async (session) => {
     const sale = await Sale.findOne({ orgId: ctx.orgId, _id: saleId, status: "completed", kind: { $ne: "return" } }, null, { session }).lean<SaleDoc>();
     if (!sale) throw new AppError("NOT_FOUND", "Sale not found");
@@ -191,7 +198,14 @@ export async function returnSale(ctx: Ctx, saleId: string, items: { lineIndex: n
       if (!l) throw new AppError("INVALID", "Invalid line");
       if (i.qty > l.qty! - (l.returnedQty ?? 0)) throw new AppError("INVALID", `Only ${(l.qty! - (l.returnedQty ?? 0)) / (l.scale ?? 1)} of ${l.name} can be returned.`);
       const f = (v?: number | null) => Math.round(((v ?? 0) * i.qty) / l.qty!);
-      return { ...l, qty: i.qty, discount: f(l.discount), taxable: f(l.taxable), cgst: f(l.cgst), sgst: f(l.sgst), igst: f(l.igst), vat: f(l.vat), cess: f(l.cess), total: f(l.total), returnedQty: 0, sourceLine: i.lineIndex };
+      let serials: string[] = [];
+      if (l.serials?.length) {
+        serials = cleanSerials(i.serials, i.qty, l.name ?? "Item");
+        const sold = new Set(l.serials);
+        const stray = serials.find((x) => !sold.has(x));
+        if (stray) throw new AppError("INVALID", `Serial ${stray} is not on this bill.`);
+      }
+      return { ...l, serials, qty: i.qty, discount: f(l.discount), taxable: f(l.taxable), cgst: f(l.cgst), sgst: f(l.sgst), igst: f(l.igst), vat: f(l.vat), cess: f(l.cess), total: f(l.total), returnedQty: 0, sourceLine: i.lineIndex };
     });
     if (!lines.length) throw new AppError("INVALID", "Choose at least one item to return.");
 
@@ -216,6 +230,9 @@ export async function returnSale(ctx: Ctx, saleId: string, items: { lineIndex: n
       lines.map((l) => ({ productId: String(l.productId), variantId: String(l.variantId), locationId: String(sale.locationId), batchId: l.batchId ? String(l.batchId) : null, qtyDelta: l.qty, unitCost: l.unitCost ?? 0, type: "sale_return" as const, ref: { kind: "return", id: String(ret._id), number } })),
       session,
     );
+    for (const l of lines.filter((x) => x.serials.length)) {
+      await restoreSerials(ctx, { variantId: String(l.variantId), locationId: String(sale.locationId), serials: l.serials, saleId: String(sale._id), event: "returned by customer", ref: number }, session);
+    }
     if (refundMethod === "credit") await Party.updateOne({ orgId: ctx.orgId, _id: sale.customerId }, { $inc: { balance: -grandTotal } }, { session });
     await audit(ctx, "return", "sale", String(ret._id), `Return ${number} against ${sale.number}`, { reason }, session);
     return { saleId: String(ret._id), number };
@@ -236,6 +253,9 @@ export async function voidSale(ctx: Ctx, saleId: string, reason: string) {
       sale.lines.map((l) => ({ productId: String(l.productId), variantId: String(l.variantId), locationId: String(sale.locationId), batchId: l.batchId ? String(l.batchId) : null, qtyDelta: l.qty!, unitCost: l.unitCost ?? 0, type: "void" as const, ref: { kind: "sale", id: String(sale._id), number: sale.number ?? undefined } })),
       session,
     );
+    for (const l of sale.lines.filter((x) => x.serials?.length)) {
+      await restoreSerials(ctx, { variantId: String(l.variantId), locationId: String(sale.locationId), serials: l.serials, saleId: String(sale._id), event: "sale voided", ref: sale.number ?? "" }, session);
+    }
     if (sale.customerId && (sale.balanceDue ?? 0) > 0) await Party.updateOne({ orgId: ctx.orgId, _id: sale.customerId }, { $inc: { balance: -(sale.balanceDue ?? 0) } }, { session });
     await audit(ctx, "void", "sale", saleId, `Voided ${sale.number}`, { reason }, session);
   });

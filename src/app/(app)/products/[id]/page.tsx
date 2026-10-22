@@ -44,7 +44,7 @@ export default async function ProductPage({ params }: PageProps<"/products/[id]"
   const product = {
     id: String(p._id), name: p.name, description: p.description ?? "", categoryId: p.categoryId ? String(p.categoryId) : null, brand: p.brand ?? "",
     unitCode: p.unit?.code ?? "pcs", unitScale: (scale === 1000 ? 1000 : 1) as 1 | 1000, hsn: p.hsn ?? "", taxRateId: p.taxRateId ? String(p.taxRateId) : null,
-    priceIncludesTax: p.priceIncludesTax, trackBatch: p.trackBatch, reorderLevel: p.reorderLevel, images: p.images ?? [], active: p.active,
+    priceIncludesTax: p.priceIncludesTax, trackBatch: p.trackBatch, trackSerial: !!p.trackSerial, warrantyMonths: p.warrantyMonths ?? 0, reorderLevel: p.reorderLevel, images: p.images ?? [], active: p.active,
     variants: p.variants.map((v) => ({ id: String(v._id), name: v.name ?? "", sku: v.sku, barcodes: v.barcodes, attributes: (v.attributes ?? []).map((a) => ({ name: a.name ?? "", value: a.value ?? "" })), costPrice: v.costPrice ?? 0, salePrice: v.salePrice, mrp: v.mrp ?? 0, active: v.active, openingQty: 0 })),
   };
 

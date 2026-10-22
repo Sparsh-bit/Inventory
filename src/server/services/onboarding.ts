@@ -58,14 +58,14 @@ async function seedSample(ctx: Ctx, locationId: string, rateIds: string[]) {
   ];
   for (const [name, barcode, cost, price, qty, categoryId, taxRateId] of items) {
     await createProduct(ctx, {
-      name, description: "", categoryId, brand: "", unitCode: "pcs", unitScale: 1, hsn: "", taxRateId, priceIncludesTax: true, trackBatch: false,
+      name, description: "", categoryId, brand: "", unitCode: "pcs", unitScale: 1, hsn: "", taxRateId, priceIncludesTax: true, trackBatch: false, trackSerial: false, warrantyMonths: 0,
       reorderLevel: 10, images: [], active: true, openingLocationId: locationId,
       variants: [{ name: "", sku: "", barcodes: [barcode], attributes: [], costPrice: cost, salePrice: price, mrp: price, active: true, openingQty: qty }],
     });
   }
   await createProduct(ctx, {
     name: "Cotton T-Shirt", description: "", categoryId: String(general._id), brand: "StockPilot", unitCode: "pcs", unitScale: 1, hsn: "6109", taxRateId: rate(1),
-    priceIncludesTax: true, trackBatch: false, reorderLevel: 5, images: [], active: true, openingLocationId: locationId,
+    priceIncludesTax: true, trackBatch: false, trackSerial: false, warrantyMonths: 0, reorderLevel: 5, images: [], active: true, openingLocationId: locationId,
     variants: ["S", "M", "L"].map((size) => ({ name: size, sku: "", barcodes: [], attributes: [{ name: "Size", value: size }], costPrice: 25000, salePrice: 49900, mrp: 59900, active: true, openingQty: 20 })),
   });
   await saveParty(ctx, null, { kind: "customer", name: "Walk-in Regular", phone: "9876543210", email: "", taxId: "", stateCode: "", address: {}, creditLimit: 500000, openingBalance: 0, notes: "" });

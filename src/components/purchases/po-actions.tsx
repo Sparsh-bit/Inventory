@@ -7,6 +7,7 @@ import { formatQty } from "@/lib/format";
 import { fromMinor, toMinor } from "@/lib/money";
 import { cancelPO, receivePO, returnPO } from "@/server/actions/purchases";
 import { useAction } from "@/components/app/use-action";
+import { SerialInput } from "@/components/serials/serial-input";
 import { scanFeedback, useScanner } from "@/components/scanner/use-scanner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -25,6 +26,7 @@ export interface PoLine {
   returned: number;
   unitCost: number;
   trackBatch: boolean;
+  trackSerial: boolean;
 }
 
 export function PoActions({ id, status, lines }: { id: string; status: string; lines: PoLine[] }) {
@@ -62,15 +64,30 @@ function LineDialog({ id, mode, lines, onClose }: { id: string; mode: "receive" 
   const [rows, setRows] = useState(() =>
     lines.map((l) => ({
       ...l,
-      qty: mode === "receive" ? formatQty(Math.max(0, l.ordered - l.received), l.scale) : "",
+      qty: mode === "receive" && !l.trackSerial ? formatQty(Math.max(0, l.ordered - l.received), l.scale) : "",
       cost: fromMinor(l.unitCost),
       batchNo: "",
       expiry: "",
+      serials: [] as string[],
     })),
   );
+  const [activeSerialRow, setActiveSerialRow] = useState<string | null>(null);
 
   useScanner((code) => {
     const i = rows.findIndex((r) => r.barcodes.includes(code) || r.sku === code);
+    const serialRows = rows.filter((r) => r.trackSerial);
+    if (i >= 0 && rows[i].trackSerial) {
+      setActiveSerialRow(rows[i].id);
+      return void toast.info(`Now scan the serial numbers for ${rows[i].name}`);
+    }
+    if (i < 0 && serialRows.length) {
+      const target = serialRows.find((r) => r.id === activeSerialRow) ?? (serialRows.length === 1 ? serialRows[0] : null);
+      if (!target) return void toast.error("Click the serial box of the item first, then scan.");
+      if (target.serials.includes(code)) return void toast.error(`${code} already added`);
+      scanFeedback(true);
+      setRows((rs) => rs.map((r) => (r.id === target.id ? { ...r, serials: [...r.serials, code], qty: String(r.serials.length + 1) } : r)));
+      return;
+    }
     if (i < 0) {
       scanFeedback(false);
       return void toast.error(`${code} is not on this order`);
@@ -82,18 +99,18 @@ function LineDialog({ id, mode, lines, onClose }: { id: string; mode: "receive" 
   function submit() {
     try {
       const payload = rows.map((r) => {
-        const qty = Math.round(Number(r.qty || 0) * r.scale);
+        const qty = r.trackSerial ? r.serials.length : Math.round(Number(r.qty || 0) * r.scale);
         if (!Number.isFinite(qty) || qty < 0) throw new Error(`Invalid quantity for ${r.name}`);
         return { r, qty };
       }).filter((x) => x.qty > 0);
       if (!payload.length) return toast.error("Enter a quantity for at least one item");
       if (mode === "receive") {
         recv.run(
-          { id, lines: payload.map(({ r, qty }) => ({ lineId: r.id, qty, unitCost: toMinor(r.cost || "0"), ...(r.trackBatch ? { batchNo: r.batchNo, expiry: r.expiry || null } : {}) })) },
+          { id, lines: payload.map(({ r, qty }) => ({ lineId: r.id, qty, unitCost: toMinor(r.cost || "0"), ...(r.trackBatch ? { batchNo: r.batchNo, expiry: r.expiry || null } : {}), ...(r.trackSerial ? { serials: r.serials } : {}) })) },
           { success: "Stock received", onSuccess: () => { onClose(); router.refresh(); } },
         );
       } else {
-        ret.run({ id, lines: payload.map(({ r, qty }) => ({ lineId: r.id, qty, ...(r.trackBatch && r.batchNo ? { batchNo: r.batchNo } : {}) })) }, { success: "Return recorded", onSuccess: () => { onClose(); router.refresh(); } });
+        ret.run({ id, lines: payload.map(({ r, qty }) => ({ lineId: r.id, qty, ...(r.trackBatch && r.batchNo ? { batchNo: r.batchNo } : {}), ...(r.trackSerial ? { serials: r.serials } : {}) })) }, { success: "Return recorded", onSuccess: () => { onClose(); router.refresh(); } });
       }
     } catch (e) {
       toast.error((e as Error).message.startsWith("Invalid amount") ? "Enter costs like 120 or 99.50" : (e as Error).message);
@@ -120,12 +137,24 @@ function LineDialog({ id, mode, lines, onClose }: { id: string; mode: "receive" 
                     {r.returned > 0 && ` · returned ${formatQty(r.returned, r.scale)}`} {r.unit}
                   </p>
                 </div>
+                {r.trackSerial ? (
+                  <div className="sm:col-span-2" onClick={() => setActiveSerialRow(r.id)}>
+                    <SerialInput
+                      label={`Serial numbers for ${r.name}`}
+                      value={r.serials}
+                      onFocus={() => setActiveSerialRow(r.id)}
+                      onChange={(serials) => set({ serials, qty: String(serials.length) })}
+                      expected={mode === "receive" ? Math.max(0, r.ordered - r.received) : undefined}
+                    />
+                  </div>
+                ) : (
                 <div className="flex flex-wrap items-center gap-2">
                   <Input aria-label={`Quantity for ${r.name}`} className="w-20" inputMode="decimal" placeholder="Qty" value={r.qty} onChange={(e) => set({ qty: e.target.value })} max={max ?? undefined} />
                   {mode === "receive" && <Input aria-label={`Unit cost for ${r.name}`} className="w-24" inputMode="decimal" placeholder="Cost" value={r.cost} onChange={(e) => set({ cost: e.target.value })} />}
                   {r.trackBatch && <Input aria-label={`Batch number for ${r.name}`} className="w-28" placeholder="Batch no." value={r.batchNo} onChange={(e) => set({ batchNo: e.target.value })} maxLength={40} />}
                   {r.trackBatch && mode === "receive" && <Input aria-label={`Expiry for ${r.name}`} className="w-36" type="date" value={r.expiry} onChange={(e) => set({ expiry: e.target.value })} />}
                 </div>
+                )}
               </div>
             );
           })}

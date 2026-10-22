@@ -1,7 +1,8 @@
 import "server-only";
 import { AppError, type Ctx } from "../context";
-import { Batch, Location, OrgSettings, Product, StockLevel, type ProductDoc } from "../models";
+import { Batch, Location, OrgSettings, Product, SerialNumber, StockLevel, type ProductDoc } from "../models";
 import { inTransaction } from "../with-auth";
+import { cleanSerials, moveOutSerials, receiveSerials } from "./serials";
 import { applyMoves } from "./stock";
 import { audit } from "./system";
 
@@ -20,7 +21,7 @@ async function assertLocation(ctx: Ctx, id: string) {
 }
 
 /** Positive or negative manual corrections (damage, theft, found stock…). */
-export async function adjustStock(ctx: Ctx, input: { locationId: string; reason: string; lines: { variantId: string; batchId: string | null; qtyDelta: number }[] }) {
+export async function adjustStock(ctx: Ctx, input: { locationId: string; reason: string; lines: { variantId: string; batchId: string | null; qtyDelta: number; serials?: string[] }[] }) {
   await assertLocation(ctx, input.locationId);
   const find = await variantProducts(ctx, input.lines.map((l) => l.variantId));
   return inTransaction(async (session) => {
@@ -30,11 +31,18 @@ export async function adjustStock(ctx: Ctx, input: { locationId: string; reason:
       return { productId: String(p._id), variantId: l.variantId, locationId: input.locationId, batchId: l.batchId, qtyDelta: l.qtyDelta, unitCost: v.costPrice ?? 0, type: "adjust" as const, reason: input.reason };
     });
     await applyMoves(ctx, moves, session);
+    for (const l of input.lines) {
+      const { p } = find(l.variantId);
+      if (!p.trackSerial) continue;
+      const serials = cleanSerials(l.serials, Math.abs(l.qtyDelta), p.name);
+      if (l.qtyDelta < 0) await moveOutSerials(ctx, { variantId: l.variantId, locationId: input.locationId, serials, to: { status: "written_off" }, event: `adjusted out: ${input.reason}`, ref: "adjustment" }, session);
+      else await receiveSerials(ctx, { productId: String(p._id), variantId: l.variantId, locationId: input.locationId, serials, event: `adjusted in: ${input.reason}`, ref: "adjustment" }, session);
+    }
     await audit(ctx, "adjust", "stock", input.locationId, `Stock adjustment: ${input.reason}`, { lines: input.lines.length }, session);
   });
 }
 
-export async function transferStock(ctx: Ctx, input: { fromId: string; toId: string; note: string; lines: { variantId: string; batchId: string | null; qty: number }[] }) {
+export async function transferStock(ctx: Ctx, input: { fromId: string; toId: string; note: string; lines: { variantId: string; batchId: string | null; qty: number; serials?: string[] }[] }) {
   if (input.fromId === input.toId) throw new AppError("INVALID", "Choose two different locations.");
   await Promise.all([assertLocation(ctx, input.fromId), assertLocation(ctx, input.toId)]);
   const find = await variantProducts(ctx, input.lines.map((l) => l.variantId));
@@ -50,12 +58,18 @@ export async function transferStock(ctx: Ctx, input: { fromId: string; toId: str
       ];
     });
     await applyMoves(ctx, moves, session);
+    for (const l of input.lines) {
+      const { p } = find(l.variantId);
+      if (!p.trackSerial) continue;
+      const serials = cleanSerials(l.serials, l.qty, p.name);
+      await moveOutSerials(ctx, { variantId: l.variantId, locationId: input.fromId, serials, to: { locationId: input.toId }, event: "transferred", ref: "transfer" }, session);
+    }
     await audit(ctx, "transfer", "stock", input.fromId, `Transferred ${input.lines.length} item(s)`, { to: input.toId }, session);
   });
 }
 
 /** Sets counted quantities; the difference is posted as a "count" movement. */
-export async function postStockCount(ctx: Ctx, input: { locationId: string; lines: { variantId: string; batchId: string | null; counted: number }[] }) {
+export async function postStockCount(ctx: Ctx, input: { locationId: string; lines: { variantId: string; batchId: string | null; counted: number; serials?: string[] }[] }) {
   await assertLocation(ctx, input.locationId);
   const find = await variantProducts(ctx, input.lines.map((l) => l.variantId));
   return inTransaction(async (session) => {
@@ -64,6 +78,15 @@ export async function postStockCount(ctx: Ctx, input: { locationId: string; line
     for (const l of input.lines) {
       const { p, v } = find(l.variantId);
       const level = await StockLevel.findOne({ orgId: ctx.orgId, locationId: input.locationId, variantId: l.variantId, batchId: l.batchId }, null, { session }).lean();
+      if (p.trackSerial) {
+        // Serial items: the scanned serials are the truth. Missing ones are written off, unknown ones added.
+        const scanned = new Set(cleanSerials(l.serials, l.counted, p.name));
+        const present = await SerialNumber.find({ orgId: ctx.orgId, variantId: l.variantId, locationId: input.locationId, status: "in_stock" }, { serial: 1 }, { session }).lean();
+        const missing = present.map((x) => x.serial).filter((x) => !scanned.has(x));
+        const found = [...scanned].filter((x) => !present.some((y) => y.serial === x));
+        if (missing.length) await moveOutSerials(ctx, { variantId: l.variantId, locationId: input.locationId, serials: missing, to: { status: "written_off" }, event: "missing at stock count", ref: "count" }, session);
+        if (found.length) await receiveSerials(ctx, { productId: String(p._id), variantId: l.variantId, locationId: input.locationId, serials: found, event: "found at stock count", ref: "count" }, session);
+      }
       const delta = l.counted - (level?.qty ?? 0);
       if (delta) moves.push({ productId: String(p._id), variantId: l.variantId, locationId: input.locationId, batchId: l.batchId, qtyDelta: delta, unitCost: v.costPrice ?? 0, type: "count" as const, reason: "Stock count" });
     }

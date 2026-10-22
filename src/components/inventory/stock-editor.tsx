@@ -5,13 +5,14 @@ import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatQty } from "@/lib/format";
 import { variantBatches, adjust, count, transfer } from "@/server/actions/inventory";
-import { lookupCode } from "@/server/actions/products";
+import { availableSerials, lookupCode } from "@/server/actions/products";
 import type { VariantHit } from "@/server/services/products";
 import { FormField } from "@/components/app/form-field";
 import { SelectField } from "@/components/app/select-field";
 import { useAction } from "@/components/app/use-action";
 import { ProductPicker } from "@/components/products/product-picker";
 import { CameraScanButton } from "@/components/scanner/scan-tools";
+import { SerialInput } from "@/components/serials/serial-input";
 import { scanFeedback, useScanner } from "@/components/scanner/use-scanner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,6 +29,8 @@ interface Row {
   sign: "+" | "-";
   batchId: string | null;
   batches: { id: string; batchNo: string; expiry: string | null; qty: number }[] | null;
+  serials: string[];
+  stockSerials: string[];
 }
 
 const REASONS = ["Damaged", "Expired", "Lost / theft", "Found extra", "Internal use", "Sample / gift", "Correction"];
@@ -39,12 +42,26 @@ export function StockEditor({ mode, locations }: { mode: Mode; locations: { id: 
   const [reason, setReason] = useState(REASONS[0]);
   const [note, setNote] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
+  const [activeSerialRow, setActiveSerialRow] = useState<string | null>(null);
   const a = useAction(adjust);
   const t = useAction(transfer);
   const c = useAction(count);
   const pending = a.pending || t.pending || c.pending;
 
   async function addHit(hit: VariantHit) {
+    if (hit.trackSerial) {
+      const existing = rows.find((r) => r.hit.variantId === hit.variantId);
+      if (existing) {
+        if (hit.serial && !existing.serials.includes(hit.serial)) setRows((rs) => rs.map((r) => (r.key === existing.key ? { ...r, serials: [...r.serials, hit.serial!], qty: String(r.serials.length + 1) } : r)));
+        setActiveSerialRow(existing.key);
+        return;
+      }
+      const stockSerials = await availableSerials({ variantId: hit.variantId, locationId }).then((r) => (r.ok ? r.data : []));
+      const key = crypto.randomUUID();
+      setRows((rs) => [{ key, hit, qty: hit.serial ? "1" : "", sign: "-", batchId: null, batches: null, serials: hit.serial ? [hit.serial] : [], stockSerials }, ...rs]);
+      setActiveSerialRow(key);
+      return;
+    }
     if (mode === "count") {
       const existing = rows.find((r) => r.hit.variantId === hit.variantId && !hit.trackBatch);
       if (existing) {
@@ -53,7 +70,7 @@ export function StockEditor({ mode, locations }: { mode: Mode; locations: { id: 
       }
     }
     const batches = hit.trackBatch ? await variantBatches({ variantId: hit.variantId, locationId }).then((r) => (r.ok ? r.data : [])) : null;
-    setRows((rs) => [{ key: crypto.randomUUID(), hit, qty: mode === "count" ? "1" : "", sign: "-", batchId: batches?.[0]?.id ?? null, batches }, ...rs]);
+    setRows((rs) => [{ key: crypto.randomUUID(), hit, qty: mode === "count" ? "1" : "", sign: "-", batchId: batches?.[0]?.id ?? null, batches, serials: [], stockSerials: [] }, ...rs]);
   }
 
   const onCode = async (code: string) => {
@@ -61,6 +78,10 @@ export function StockEditor({ mode, locations }: { mode: Mode; locations: { id: 
     if (r.ok && r.data) {
       scanFeedback(true);
       void addHit(r.data);
+    } else if (activeSerialRow && rows.some((x) => x.key === activeSerialRow)) {
+      // Unknown code while a serial box is active: treat it as a new serial (e.g. adding stock).
+      scanFeedback(true);
+      setRows((rs) => rs.map((x) => (x.key === activeSerialRow && !x.serials.includes(code) ? { ...x, serials: [...x.serials, code], qty: String(x.serials.length + 1) } : x)));
     } else {
       scanFeedback(false);
       toast.error(`No product with code ${code}`);
@@ -71,19 +92,19 @@ export function StockEditor({ mode, locations }: { mode: Mode; locations: { id: 
   function submit() {
     try {
       const parsed = rows.map((r) => {
-        const q = Math.round(Number(r.qty) * r.hit.scale);
-        if (!Number.isFinite(q) || q < 0 || (mode !== "count" && q === 0)) throw new Error(`Enter a quantity for ${r.hit.name}`);
+        const q = r.hit.trackSerial ? r.serials.length : Math.round(Number(r.qty) * r.hit.scale);
+        if (!Number.isFinite(q) || q < 0 || (mode !== "count" && q === 0)) throw new Error(r.hit.trackSerial ? `Add serial numbers for ${r.hit.name}` : `Enter a quantity for ${r.hit.name}`);
         if (r.hit.trackBatch && !r.batchId) throw new Error(`Choose a batch for ${r.hit.name}`);
         return { r, q };
       });
       if (!parsed.length) return toast.error("Add at least one product");
       const done = { onSuccess: () => { setRows([]); router.refresh(); } };
       if (mode === "adjust")
-        a.run({ locationId, reason: note ? `${reason}: ${note}` : reason, lines: parsed.map(({ r, q }) => ({ variantId: r.hit.variantId, batchId: r.batchId, qtyDelta: r.sign === "-" ? -q : q })) }, { success: "Stock adjusted", ...done });
+        a.run({ locationId, reason: note ? `${reason}: ${note}` : reason, lines: parsed.map(({ r, q }) => ({ variantId: r.hit.variantId, batchId: r.batchId, qtyDelta: r.sign === "-" ? -q : q, ...(r.hit.trackSerial ? { serials: r.serials } : {}) })) }, { success: "Stock adjusted", ...done });
       else if (mode === "transfer")
-        t.run({ fromId: locationId, toId, note, lines: parsed.map(({ r, q }) => ({ variantId: r.hit.variantId, batchId: r.batchId, qty: q })) }, { success: "Stock transferred", ...done });
+        t.run({ fromId: locationId, toId, note, lines: parsed.map(({ r, q }) => ({ variantId: r.hit.variantId, batchId: r.batchId, qty: q, ...(r.hit.trackSerial ? { serials: r.serials } : {}) })) }, { success: "Stock transferred", ...done });
       else
-        c.run({ locationId, lines: parsed.map(({ r, q }) => ({ variantId: r.hit.variantId, batchId: r.batchId, counted: q })) }, { success: "Stock count posted", ...done });
+        c.run({ locationId, lines: parsed.map(({ r, q }) => ({ variantId: r.hit.variantId, batchId: r.batchId, counted: q, ...(r.hit.trackSerial ? { serials: r.serials } : {}) })) }, { success: "Stock count posted", ...done });
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -129,7 +150,19 @@ export function StockEditor({ mode, locations }: { mode: Mode; locations: { id: 
                         <ToggleGroupItem value="+" aria-label="Add stock">+</ToggleGroupItem>
                       </ToggleGroup>
                     )}
-                    <Input aria-label={`${mode === "count" ? "Counted" : "Quantity"} for ${r.hit.name}`} className="w-24" inputMode="decimal" placeholder={mode === "count" ? "Counted" : "Qty"} value={r.qty} onChange={(e) => set(r.key, { qty: e.target.value })} />
+                    {r.hit.trackSerial ? (
+                      <div className="w-full sm:w-auto sm:min-w-72 sm:flex-1" onClick={() => setActiveSerialRow(r.key)}>
+                        <SerialInput
+                          label={`Serial numbers for ${r.hit.name}`}
+                          value={r.serials}
+                          onFocus={() => setActiveSerialRow(r.key)}
+                          onChange={(serials) => set(r.key, { serials, qty: String(serials.length) })}
+                          suggestions={mode === "adjust" && r.sign === "+" ? [] : r.stockSerials}
+                        />
+                      </div>
+                    ) : (
+                      <Input aria-label={`${mode === "count" ? "Counted" : "Quantity"} for ${r.hit.name}`} className="w-24" inputMode="decimal" placeholder={mode === "count" ? "Counted" : "Qty"} value={r.qty} onChange={(e) => set(r.key, { qty: e.target.value })} />
+                    )}
                     <Button variant="ghost" size="icon-sm" aria-label={`Remove ${r.hit.name}`} onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}><Trash2 /></Button>
                   </li>
                 );

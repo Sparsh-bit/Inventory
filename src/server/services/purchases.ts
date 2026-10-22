@@ -2,6 +2,7 @@ import "server-only";
 import { AppError, type Ctx } from "../context";
 import { Batch, Location, Party, Product, PurchaseOrder, TaxRate, Types, type ProductDoc } from "../models";
 import { inTransaction } from "../with-auth";
+import { cleanSerials, moveOutSerials, receiveSerials } from "./serials";
 import { applyMoves } from "./stock";
 import { audit, nextNumber } from "./system";
 
@@ -66,6 +67,7 @@ export interface ReceiveLine {
   batchNo?: string;
   expiry?: string | null;
   unitCost?: number;
+  serials?: string[];
 }
 
 export async function receivePurchase(ctx: Ctx, poId: string, input: ReceiveLine[]) {
@@ -77,6 +79,7 @@ export async function receivePurchase(ctx: Ctx, poId: string, input: ReceiveLine
     const moves = [];
     let value = 0;
     const receiptLines = [];
+    const serialJobs: { productId: string; variantId: string; serials: string[] }[] = [];
     for (const r of input.filter((x) => x.qty > 0)) {
       const line = po.lines.id(r.lineId);
       if (!line) throw new AppError("INVALID", "Invalid order line");
@@ -93,6 +96,7 @@ export async function receivePurchase(ctx: Ctx, poId: string, input: ReceiveLine
         );
         batchId = b!._id;
       }
+      if (product.trackSerial) serialJobs.push({ productId: String(line.productId), variantId: String(line.variantId), serials: cleanSerials(r.serials, r.qty, line.name ?? "Item") });
       line.qtyReceived += r.qty;
       value += lineValue(r.qty, line.unitCost, line.scale ?? 1, line.rateBp ?? 0);
       receiptLines.push({ lineId: line._id, qty: r.qty, batchNo: r.batchNo, expiry: r.expiry ? new Date(r.expiry) : undefined });
@@ -107,16 +111,18 @@ export async function receivePurchase(ctx: Ctx, poId: string, input: ReceiveLine
     await po.save({ session });
     for (const p of products) if (p.isModified()) await p.save({ session });
     await applyMoves(ctx, moves, session);
+    for (const j of serialJobs) await receiveSerials(ctx, { ...j, locationId: String(po.locationId), purchaseId: poId, event: "received", ref: po.number }, session);
     await Party.updateOne({ orgId: ctx.orgId, _id: po.supplierId }, { $inc: { balance: value } }, { session });
     await audit(ctx, "receive", "purchase", poId, `Received goods on ${po.number}`, undefined, session);
     return { status: po.status };
   });
 }
 
-export async function returnPurchase(ctx: Ctx, poId: string, input: { lineId: string; qty: number; batchNo?: string }[]) {
+export async function returnPurchase(ctx: Ctx, poId: string, input: { lineId: string; qty: number; batchNo?: string; serials?: string[] }[]) {
   return inTransaction(async (session) => {
     const po = await PurchaseOrder.findOne({ orgId: ctx.orgId, _id: poId }, null, { session });
     if (!po) throw new AppError("NOT_FOUND", "Purchase order not found");
+    const serialProducts = new Set((await Product.find({ orgId: ctx.orgId, _id: { $in: po.lines.map((l) => l.productId) }, trackSerial: true }, { _id: 1 }, { session }).lean()).map((p) => String(p._id)));
     const moves = [];
     let value = 0;
     for (const r of input.filter((x) => x.qty > 0)) {
@@ -128,6 +134,10 @@ export async function returnPurchase(ctx: Ctx, poId: string, input: { lineId: st
         const b = await Batch.findOne({ orgId: ctx.orgId, variantId: line.variantId, batchNo: r.batchNo }, null, { session });
         if (!b) throw new AppError("INVALID", `Batch ${r.batchNo} not found for ${line.name}.`);
         batchId = String(b._id);
+      }
+      if (serialProducts.has(String(line.productId))) {
+        const serials = cleanSerials(r.serials, r.qty, line.name ?? "Item");
+        await moveOutSerials(ctx, { variantId: String(line.variantId), locationId: String(po.locationId), serials, to: { status: "returned" }, event: "returned to supplier", ref: po.number }, session);
       }
       line.qtyReturned += r.qty;
       value += lineValue(r.qty, line.unitCost, line.scale ?? 1, line.rateBp ?? 0);

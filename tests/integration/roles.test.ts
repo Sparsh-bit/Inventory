@@ -19,7 +19,7 @@ let rs: MongoMemoryReplSet;
 const ACTIONS: [string, string, Permission][] = [
   ["products", "saveProduct", "products:write"], ["products", "archiveProduct", "products:write"], ["products", "searchProducts", "products:read"],
   ["products", "lookupCode", "products:read"], ["products", "saveCategory", "products:write"], ["products", "deleteCategory", "products:write"],
-  ["products", "listTaxRates", "products:read"],
+  ["products", "listTaxRates", "products:read"], ["products", "availableSerials", "products:read"],
   ["sales", "checkout", "pos:sell"], ["sales", "holdBill", "pos:sell"], ["sales", "listHeldBills", "pos:sell"], ["sales", "discardHeldBill", "pos:sell"],
   ["sales", "resumeHeldBill", "pos:sell"], ["sales", "refundSale", "sales:return"], ["sales", "cancelSale", "sales:void"], ["sales", "receiptData", "sales:read"],
   ["sales", "findCustomers", "parties:read"], ["sales", "quickAddCustomer", "parties:write"], ["sales", "listBatches", "pos:sell"],

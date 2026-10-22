@@ -39,7 +39,7 @@ export async function getReceiptData(ctx: Ctx, saleId: string): Promise<ReceiptD
       lines: sale.lines.map((l) => ({
         name: l.name ?? "", sku: l.sku ?? "", hsn: l.hsn ?? "", qty: l.qty, scale: l.scale ?? 1, unit: l.unit ?? "", unitPrice: l.unitPrice ?? 0, mrp: l.mrp ?? 0,
         discount: l.discount ?? 0, taxable: l.taxable ?? 0, rateBp: l.rateBp ?? 0, tax: (l.cgst ?? 0) + (l.sgst ?? 0) + (l.igst ?? 0) + (l.vat ?? 0) + (l.cess ?? 0),
-        total: l.total ?? 0, batchNo: l.batchNo ?? "",
+        total: l.total ?? 0, batchNo: l.batchNo ?? "", serials: l.serials ?? [],
       })),
       subtotal: sale.subtotal ?? 0, discountTotal: sale.discountTotal ?? 0, taxableTotal: sale.taxableTotal ?? 0, cgst: sale.cgst ?? 0, sgst: sale.sgst ?? 0,
       igst: sale.igst ?? 0, vat: sale.vat ?? 0, cess: sale.cess ?? 0, taxTotal: sale.taxTotal ?? 0, roundOff: sale.roundOff ?? 0, grandTotal: sale.grandTotal ?? 0,

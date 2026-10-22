@@ -39,6 +39,20 @@ test("add a product by scanning its barcode, then sell it: qty starts at 1 and c
   await expect(page.getByRole("dialog", { name: "Sale complete" })).toBeVisible();
 });
 
+test("batch-tracked product: opening stock with batch number and expiry", async ({ page }) => {
+  await page.goto("/products/new");
+  await page.getByLabel("Product name").fill("E2E Chips 50g");
+  await page.getByLabel("Selling price", { exact: true }).fill("20");
+  await page.getByLabel(/Opening stock/).fill("20");
+  await page.getByRole("switch", { name: /Track batches/ }).click();
+  await expect(page.getByLabel(/Opening stock/)).toHaveValue("20");
+  await page.getByLabel("Batch no.").fill("B2610");
+  await page.getByLabel(/Expiry date/).fill("2027-03-31");
+  await page.getByRole("button", { name: "Create product" }).click();
+  await expect(page.getByText("Product created")).toBeVisible();
+  await expect(page.getByText("20 pcs")).toBeVisible();
+});
+
 test("unknown barcode offers to create a product", async ({ page }) => {
   await page.goto("/pos");
   await expect(page.getByRole("textbox", { name: "Search product or scan barcode" })).toBeVisible();

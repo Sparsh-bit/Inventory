@@ -46,6 +46,8 @@ interface Row {
   price: string;
   mrp: string;
   opening: string;
+  batchNo: string;
+  expiry: string;
   active: boolean;
 }
 
@@ -58,7 +60,7 @@ export interface ProductFormProps {
   initialBarcode?: string;
 }
 
-const blankRow = (o: Partial<Row> = {}): Row => ({ key: crypto.randomUUID(), name: "", attributes: [], sku: "", barcodes: "", cost: "", price: "", mrp: "", opening: "", active: true, ...o });
+const blankRow = (o: Partial<Row> = {}): Row => ({ key: crypto.randomUUID(), name: "", attributes: [], sku: "", barcodes: "", cost: "", price: "", mrp: "", opening: "", batchNo: "", expiry: "", active: true, ...o });
 const m = (v: number | undefined) => (v ? fromMinor(v) : "");
 
 export function ProductForm({ product, categories, taxRates, locations, defaults, initialBarcode = "" }: ProductFormProps) {
@@ -162,6 +164,7 @@ export function ProductForm({ product, categories, taxRates, locations, defaults
           id: r.id, name: hasVariants ? r.name : "", attributes: hasVariants ? r.attributes : [], sku: r.sku.trim(),
           barcodes: r.barcodes.split(",").map((b) => b.trim()).filter(Boolean), costPrice: r.cost.trim() ? toMinor(r.cost) : 0,
           salePrice: toMinor(r.price), mrp: r.mrp.trim() ? toMinor(r.mrp) : 0, active: r.active, openingQty: isEdit ? 0 : qty(r.opening),
+          openingBatchNo: trackBatch ? r.batchNo.trim() : "", openingExpiry: trackBatch && r.expiry ? r.expiry : null,
         };
       });
     } catch (e2) {
@@ -288,8 +291,18 @@ export function ProductForm({ product, categories, taxRates, locations, defaults
                     </FormField>
                     {!isEdit && (
                       <FormField label={`Opening stock (${unit.code})`} className="col-span-2 @md:col-span-1">
-                        <Input inputMode="decimal" value={r.opening} onChange={(e) => setRow(r.key, { opening: e.target.value })} placeholder="0" disabled={trackBatch || trackSerial} />
+                        <Input inputMode="decimal" value={r.opening} onChange={(e) => setRow(r.key, { opening: e.target.value })} placeholder="0" disabled={trackSerial} />
                       </FormField>
+                    )}
+                    {!isEdit && trackBatch && (
+                      <>
+                        <FormField label="Batch no." className="col-span-1">
+                          <Input value={r.batchNo} onChange={(e) => setRow(r.key, { batchNo: e.target.value })} placeholder="e.g. B2610" maxLength={64} className="font-mono" required={!!r.opening.trim() && r.opening.trim() !== "0"} />
+                        </FormField>
+                        <FormField label="Expiry date" optional className="col-span-1">
+                          <Input type="date" value={r.expiry} onChange={(e) => setRow(r.key, { expiry: e.target.value })} />
+                        </FormField>
+                      </>
                     )}
                   </div>
                   {r.price && r.cost && toMinorSafe(r.price) > 0 && (
@@ -377,14 +390,14 @@ export function ProductForm({ product, categories, taxRates, locations, defaults
                   Track serial numbers / IMEI
                   <span className="text-xs text-muted-foreground">Phones, electronics, appliances. Each unit is scanned in and out.</span>
                 </Label>
-                <Switch id="serial" checked={trackSerial} onCheckedChange={(v) => { setTrackSerial(v); if (v) { setTrackBatch(false); setUnitCode("pcs"); } }} disabled={isEdit} />
+                <Switch id="serial" checked={trackSerial} onCheckedChange={(v) => { setTrackSerial(v); if (v) { setTrackBatch(false); setUnitCode("pcs"); setRows((rs) => rs.map((r) => ({ ...r, opening: "" }))); } }} disabled={isEdit} />
               </div>
               {trackSerial && (
                 <FormField label="Warranty (months)" optional description="Shown on serial lookups so you can check warranty claims.">
                   <Input inputMode="numeric" value={warranty} onChange={(e) => setWarranty(e.target.value.replace(/\D/g, "").slice(0, 3))} placeholder="12" />
                 </FormField>
               )}
-              {!isEdit && locations.length > 1 && !trackBatch && !trackSerial && (
+              {!isEdit && locations.length > 1 && !trackSerial && (
                 <FormField label="Opening stock location">
                   <SelectField value={openingLocationId} onValueChange={setOpeningLocationId} options={locations.map((l) => [l.id, l.name] as const)} />
                 </FormField>

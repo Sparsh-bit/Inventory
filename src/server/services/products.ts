@@ -3,7 +3,7 @@ import { z } from "zod";
 import { makeInternalEan13 } from "@/lib/ean13";
 import { productInput } from "@/lib/schemas";
 import { AppError, type Ctx } from "../context";
-import { Category, Location, Product, TaxRate, Types, type ProductDoc } from "../models";
+import { Batch, Category, Location, Product, TaxRate, Types, type ProductDoc } from "../models";
 import { inTransaction } from "../with-auth";
 import { findInStockSerial } from "./serials";
 import { applyMoves, stockByVariant } from "./stock";
@@ -54,17 +54,22 @@ export async function createProduct(ctx: Ctx, input: Input) {
     const [p] = await Product.create([{ orgId: ctx.orgId, ...fields(input), variants }], { session });
     const opening = input.variants.map((v, i) => ({ v, id: variants[i]._id })).filter((x) => x.v.openingQty > 0);
     if (opening.length) {
-      if (input.trackBatch) throw new AppError("INVALID", "Add opening stock for batch-tracked items through a purchase so batch and expiry are recorded.");
       if (input.trackSerial) throw new AppError("INVALID", "Add stock for serial-numbered items through a purchase or a stock adjustment so each serial is recorded.");
       const loc = input.openingLocationId
         ? await Location.findOne({ orgId: ctx.orgId, _id: input.openingLocationId }, null, { session })
         : await Location.findOne({ orgId: ctx.orgId, isDefault: true }, null, { session });
       if (!loc) throw new AppError("INVALID", "Location not found");
-      await applyMoves(
-        ctx,
-        opening.map(({ v, id }) => ({ productId: String(p._id), variantId: String(id), locationId: String(loc._id), qtyDelta: v.openingQty, unitCost: v.costPrice, type: "opening" as const, ref: { kind: "product", id: String(p._id) } })),
-        session,
-      );
+      const moves = [];
+      for (const { v, id } of opening) {
+        let batchId: string | null = null;
+        if (input.trackBatch) {
+          if (!v.openingBatchNo) throw new AppError("INVALID", `Enter the batch number for the opening stock${v.name ? ` of ${v.name}` : ""}.`);
+          const [b] = await Batch.create([{ orgId: ctx.orgId, productId: p._id, variantId: id, batchNo: v.openingBatchNo, expiry: v.openingExpiry ? new Date(v.openingExpiry) : null, costPrice: v.costPrice }], { session });
+          batchId = String(b._id);
+        }
+        moves.push({ productId: String(p._id), variantId: String(id), locationId: String(loc._id), batchId, qtyDelta: v.openingQty, unitCost: v.costPrice, type: "opening" as const, ref: { kind: "product", id: String(p._id) } });
+      }
+      await applyMoves(ctx, moves, session);
     }
     await audit(ctx, "create", "product", String(p._id), `Created product ${p.name}`, undefined, session);
     return { id: String(p._id) };

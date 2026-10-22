@@ -99,6 +99,22 @@ describe("stock & sales invariants", () => {
     await expect(product(b, 0, { variants: [{ name: "", sku: "", barcodes: [barcode], attributes: [], costPrice: 0, salePrice: 100, mrp: 0, active: true, openingQty: 0 }] })).resolves.toBeTruthy();
   });
 
+  it("records opening stock of a batch-tracked product as its first batch", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const v = { name: "", sku: "", barcodes: [], attributes: [], costPrice: 1500, salePrice: 2000, mrp: 2000, active: true, openingQty: 20 };
+    await expect(product(c, 0, { trackBatch: true, variants: [v] })).rejects.toThrow(/batch number/);
+    const { variantId } = await product(c, 0, { trackBatch: true, variants: [{ ...v, openingBatchNo: "B2610", openingExpiry: "2027-03-31" }] });
+    const batch = await svc.models.Batch.findOne({ orgId: c.orgId, variantId }).lean();
+    expect(batch).toMatchObject({ batchNo: "B2610", costPrice: 1500 });
+    expect(batch!.expiry!.toISOString().slice(0, 10)).toBe("2027-03-31");
+    const level = await svc.models.StockLevel.findOne({ orgId: c.orgId, variantId, batchId: batch!._id }).lean();
+    expect(level!.qty).toBe(20);
+    // and it sells from that batch
+    await svc.sales.completeSale(c, cashSale(loc, variantId, 3, 6000));
+    expect((await svc.models.StockLevel.findOne({ orgId: c.orgId, variantId, batchId: batch!._id }).lean())!.qty).toBe(17);
+  });
+
   it("rejects duplicate barcodes within a business", async () => {
     const c = ctx();
     await business(c);

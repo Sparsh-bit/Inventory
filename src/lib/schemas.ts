@@ -28,6 +28,9 @@ export const variantInput = z
     mrp: money.default(0),
     active: z.boolean().default(true),
     openingQty: z.number().int().min(0).max(1e9).default(0),
+    // Batch-tracked products: the batch the opening stock belongs to.
+    openingBatchNo: trimmed(64).optional(),
+    openingExpiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a valid date").nullable().optional(),
   })
   .strict();
 

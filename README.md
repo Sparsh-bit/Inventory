@@ -54,8 +54,9 @@ To use your own settings, copy `env.example` to `.env.local` and fill it in:
 | `MONGODB_URI` | ✔ | Replica set URI, e.g. MongoDB Atlas (replica set by default) |
 | `BETTER_AUTH_SECRET` | ✔ | 32+ random characters: `openssl rand -base64 48` |
 | `APP_URL` | ✔ | Public URL. Must be **https** in production (camera access and secure cookies need it) |
-| `SMTP_URL` | production | e.g. `smtps://user:pass@smtp.example.com:465` |
-| `MAIL_FROM` | | Sender address |
+| `RESEND_API_KEY` | production* | [Resend](https://resend.com) API key (`re_…`). Sends over HTTPS, so it works on Railway, which blocks SMTP on the Hobby plan |
+| `SMTP_URL` | | *or SMTP instead, e.g. `smtps://user:pass@smtp.example.com:465` |
+| `MAIL_FROM` | | Sender, e.g. `StockPilot <no-reply@yourdomain.com>`. With Resend the domain must be verified in Resend |
 | `UPLOAD_DIR` | | Where product images/logos are stored (default `./uploads`) |
 | `ENCRYPTION_KEY` | | 32+ chars; encrypts stored GST API credentials (defaults to a key derived from `BETTER_AUTH_SECRET`; set it so rotating the auth secret doesn't invalidate them) |
 | `NIC_EXTRA_HOSTS` | | Extra e-invoice API hosts allowed besides NIC's own (e.g. your GSP), comma separated |
@@ -78,13 +79,13 @@ This runs the app and MongoDB 8 as a replica set, with persistent volumes for da
 
 1. **Database:** create a free cluster on [MongoDB Atlas](https://www.mongodb.com/atlas) (Atlas is a replica set, which the app needs for transactions). Under *Network Access* allow `0.0.0.0/0`, or Railway's static egress IPs if you have them. Copy the `mongodb+srv://…` connection string and add a database name, e.g. `…mongodb.net/stockpilot?retryWrites=true&w=majority`. Railway's one-click MongoDB template is a single server without a replica set and will not work.
 2. **App:** in Railway choose *New project → Deploy from GitHub repo*. It finds `railway.json` and builds the `Dockerfile`.
-3. **Variables:** run `bash scripts/railway-env.sh`. It prints every variable with fresh secrets. Paste the output into service → *Variables* → *Raw Editor* and fill in the two `REPLACE_ME` values:
+3. **Variables:** run `bash scripts/railway-env.sh`. It prints every variable with fresh secrets. Paste the output into service → *Variables* → *Raw Editor* and fill in the `REPLACE_ME` values:
 
    | Variable | Value |
    |---|---|
    | `MONGODB_URI` | the Atlas string from step 1 |
    | `BETTER_AUTH_SECRET` | output of `openssl rand -base64 48` |
-   | `SMTP_URL`, `MAIL_FROM` | your mail provider (needed: sign-up sends a verification email) |
+   | `RESEND_API_KEY`, `MAIL_FROM` | Resend key and a sender on a domain verified in Resend (needed: sign-up sends a verification email) |
    | `ENCRYPTION_KEY` | another `openssl rand -base64 48` |
    | `RAILWAY_RUN_UID` | `0` (lets the app write to the mounted volume) |
    | `APP_URL` | only if you add a custom domain, e.g. `https://pos.example.com` (otherwise the Railway domain is used automatically) |

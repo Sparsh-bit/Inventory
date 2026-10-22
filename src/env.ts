@@ -7,9 +7,11 @@ const schema = z.object({
   BETTER_AUTH_SECRET: z.string().min(32, "BETTER_AUTH_SECRET must be at least 32 characters"),
   APP_URL: z.url(),
   SMTP_URL: z.string().optional(),
+  // Resend API key (re_...). Takes precedence over SMTP_URL.
+  RESEND_API_KEY: z.string().startsWith("re_").optional(),
   MAIL_FROM: z.string().default("StockPilot <no-reply@localhost>"),
   // "file" writes outgoing mail to .data/mail.log (used by E2E tests)
-  MAIL_SINK: z.enum(["smtp", "console", "file"]).optional(),
+  MAIL_SINK: z.enum(["resend", "smtp", "console", "file"]).optional(),
   UPLOAD_DIR: z.string().default("./uploads"),
   // Key for encrypting stored API credentials (defaults to one derived from BETTER_AUTH_SECRET).
   ENCRYPTION_KEY: z.string().min(32).optional(),

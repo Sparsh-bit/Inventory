@@ -4,7 +4,7 @@ import { CASHIER, MANAGER, OWNER, STOCKKEEPER } from "./test-users";
 
 test.describe.configure({ mode: "serial" });
 
-const SAMPLE_BARCODE = "8901234567892"; // "Mineral Water 1L" from the onboarding sample data
+const SAMPLE_BARCODE = "8901234567890"; // "Mineral Water 1L" from the onboarding sample data
 
 async function expectPage(page: Page, path: string) {
   const res = await page.goto(path);

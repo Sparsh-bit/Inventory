@@ -13,7 +13,7 @@ test("offline POS: sell without internet, survive a reload, sync when back onlin
 
   await context.setOffline(true);
   await expect(page.getByRole("status").filter({ hasText: "Offline" })).toBeVisible();
-  await scan(page, "8901234567892"); // Mineral Water from local catalogue
+  await scan(page, "8901234567890"); // Mineral Water from local catalogue
   await expect(page.getByRole("list", { name: "Cart items" }).getByText("Mineral Water 1L")).toBeVisible();
   await page.keyboard.press("F4");
   await page.getByRole("button", { name: /Complete sale/ }).click();

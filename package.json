@@ -14,7 +14,8 @@
     "db": "bash scripts/db.sh",
     "test:all": "vitest run && playwright test",
     "bridge": "node print-bridge/bridge.mjs",
-    "clean:mac": "find . -name '._*' -not -path './node_modules/*' -delete"
+    "clean:mac": "find . -name '._*' -not -path './node_modules/*' -delete",
+    "dev:phone": "bash scripts/dev-phone.sh"
   },
   "dependencies": {
     "@zxing/browser": "^0.2.1",

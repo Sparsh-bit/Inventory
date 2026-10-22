@@ -50,11 +50,11 @@ async function seedSample(ctx: Ctx, locationId: string, rateIds: string[]) {
   ]);
   const rate = (i: number) => rateIds[Math.min(i, rateIds.length - 1)];
   const items: [string, string, number, number, number, string, string | null][] = [
-    ["Mineral Water 1L", "8901234567892", 1500, 2000, 120, String(beverages._id), rate(2)],
-    ["Cold Coffee 250ml", "8901234567908", 3500, 4500, 48, String(beverages._id), rate(2)],
-    ["Notebook A5 (100 pages)", "8901234567915", 4000, 6000, 60, String(general._id), rate(2)],
-    ["Ball Pen Blue", "8901234567922", 600, 1000, 200, String(general._id), rate(2)],
-    ["Hand Sanitizer 100ml", "8901234567939", 4500, 7500, 35, String(general._id), rate(3)],
+    ["Mineral Water 1L", "8901234567890", 1500, 2000, 120, String(beverages._id), rate(2)],
+    ["Cold Coffee 250ml", "8901234567906", 3500, 4500, 48, String(beverages._id), rate(2)],
+    ["Notebook A5 (100 pages)", "8901234567913", 4000, 6000, 60, String(general._id), rate(2)],
+    ["Ball Pen Blue", "8901234567920", 600, 1000, 200, String(general._id), rate(2)],
+    ["Hand Sanitizer 100ml", "8901234567937", 4500, 7500, 35, String(general._id), rate(3)],
   ];
   for (const [name, barcode, cost, price, qty, categoryId, taxRateId] of items) {
     await createProduct(ctx, {

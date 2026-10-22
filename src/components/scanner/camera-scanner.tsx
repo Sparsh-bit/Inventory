@@ -12,9 +12,9 @@ const WANTED = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "cod
 /**
  * Live camera barcode scanner. Uses the native BarcodeDetector (Android/Chrome) and falls back
  * to ZXing (iOS Safari, desktop Firefox). Calls onScan for each new code; ignores repeats
- * of the same code within `repeatMs`.
+ * of a code while it stays in view: it counts again only after being out of view for `repeatMs`.
  */
-export function CameraScanner({ onScan, repeatMs = 1500, className = "" }: { onScan: (code: string) => void; repeatMs?: number; className?: string }) {
+export function CameraScanner({ onScan, repeatMs = 1000, className = "" }: { onScan: (code: string) => void; repeatMs?: number; className?: string }) {
   const video = useRef<HTMLVideoElement>(null);
   const [status, setStatus] = useState<"starting" | "running" | "denied" | "unavailable" | "insecure">("starting");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -30,8 +30,10 @@ export function CameraScanner({ onScan, repeatMs = 1500, className = "" }: { onS
   const emit = useCallback(
     (code: string) => {
       const now = Date.now();
-      if (code === last.current.code && now - last.current.at < repeatMs) return;
+      // `at` is the last time this code was SEEN (not added), so holding an item up adds it once.
+      const seenRecently = code === last.current.code && now - last.current.at < repeatMs;
       last.current = { code, at: now };
+      if (seenRecently) return;
       scanFeedback(true);
       cb.current(code);
     },

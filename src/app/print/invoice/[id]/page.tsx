@@ -45,6 +45,7 @@ export default async function InvoicePrintPage({ params, searchParams }: PagePro
   if (!d) notFound();
   const m = (v: number) => formatMoney(v, d.org.currency, d.org.locale);
   const gst = d.org.taxMode === "GST";
+  const irnQr = d.sale.einvoice?.signedQr ? await QRCode.toDataURL(d.sale.einvoice.signedQr, { margin: 0, width: 220, errorCorrectionLevel: "L" }) : null;
   const qr = d.org.upiId && d.sale.kind !== "return" && d.sale.balanceDue > 0 ? await QRCode.toDataURL(upiLink(d, d.sale.balanceDue), { margin: 0, width: 140 }) : null;
 
   return (
@@ -72,6 +73,18 @@ export default async function InvoicePrintPage({ params, searchParams }: PagePro
           </div>
         </header>
 
+        {d.sale.einvoice && (
+          <section className="flex items-start justify-between gap-4 border-b py-3 text-[10.5px]">
+            <div className="min-w-0 space-y-0.5">
+              {d.sale.einvoice.cancelled && <p className="font-bold text-red-600">IRN CANCELLED</p>}
+              <p><span className="text-neutral-500">IRN:</span> <span className="break-all font-mono">{d.sale.einvoice.irn}</span></p>
+              <p><span className="text-neutral-500">Ack No:</span> {d.sale.einvoice.ackNo} · <span className="text-neutral-500">Ack Date:</span> {d.sale.einvoice.ackDt}</p>
+              {d.sale.einvoice.ewbNo && <p><span className="text-neutral-500">E-way bill:</span> {d.sale.einvoice.ewbNo}</p>}
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {irnQr && <img src={irnQr} alt="E-invoice signed QR code" className="size-28 shrink-0" />}
+          </section>
+        )}
         <section className="grid grid-cols-2 gap-6 py-4">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">Bill to</p>

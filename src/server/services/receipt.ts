@@ -45,6 +45,7 @@ export async function getReceiptData(ctx: Ctx, saleId: string): Promise<ReceiptD
       igst: sale.igst ?? 0, vat: sale.vat ?? 0, cess: sale.cess ?? 0, taxTotal: sale.taxTotal ?? 0, roundOff: sale.roundOff ?? 0, grandTotal: sale.grandTotal ?? 0,
       payments: sale.payments.map((p) => ({ method: p.method, amount: p.amount ?? 0 })), change: sale.change ?? 0, balanceDue: sale.balanceDue ?? 0,
       returnOfNumber: sale.returnOfNumber ?? null, notes: sale.notes ?? "",
+      einvoice: sale.einvoice?.irn ? { irn: sale.einvoice.irn, ackNo: sale.einvoice.ackNo ?? "", ackDt: sale.einvoice.ackDt ?? "", signedQr: sale.einvoice.signedQr ?? "", ewbNo: sale.einvoice.ewbNo ?? "", cancelled: sale.einvoice.status === "cancelled" } : null,
       taxSummary: [...summary.values()].filter((t) => t.cgst || t.sgst || t.igst || t.vat || t.cess).sort((x, y) => x.rateBp - y.rateBp),
     },
   };

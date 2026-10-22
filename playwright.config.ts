@@ -16,6 +16,7 @@ export const E2E_ENV = {
   APP_URL: `http://localhost:${PORT}`,
   MAIL_SINK: "file",
   UPLOAD_DIR: ".data/e2e-uploads",
+  NIC_EXTRA_HOSTS: "127.0.0.1:4555", // mock e-invoice API started by global setup
 };
 
 export default defineConfig({

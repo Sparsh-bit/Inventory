@@ -5,7 +5,8 @@ import { formatDate, formatQty, PAYMENT_LABELS } from "@/lib/format";
 import { formatMoney } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { getOrgSettings, requireCtx } from "@/server/context";
-import { Location, Sale, type SaleDoc } from "@/server/models";
+import { EinvoiceConfig, Location, Sale, type SaleDoc } from "@/server/models";
+import { EinvoicePanel } from "@/components/einvoice/einvoice-panel";
 import { PageBody, PageHeader } from "@/components/app/page-header";
 import { MarkReviewedButton, SaleActions } from "@/components/sales/sale-actions";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -30,6 +31,8 @@ export default async function SalePage({ params }: PageProps<"/sales/[id]">) {
     sale.returnOf ? Sale.findOne({ orgId: ctx.orgId, _id: sale.returnOf }, { number: 1 }).lean() : null,
   ]);
   const isReturn = sale.kind === "return";
+  const einvoiceEligible = s.taxMode === "GST" && sale.status === "completed" && !!sale.customer?.taxId;
+  const einvConfig = einvoiceEligible ? await EinvoiceConfig.findOne({ orgId: ctx.orgId }, { enabled: 1 }).lean() : null;
   const returnable = !isReturn && sale.status === "completed" && sale.lines.some((l) => l.qty - (l.returnedQty ?? 0) > 0);
 
   return (
@@ -130,6 +133,15 @@ export default async function SalePage({ params }: PageProps<"/sales/[id]">) {
               {(sale.balanceDue ?? 0) > 0 && <Row k="Balance due" v={money(sale.balanceDue ?? 0)} strong />}
             </CardContent>
           </Card>
+          {einvoiceEligible && (
+            <EinvoicePanel
+              saleId={id}
+              number={sale.number ?? ""}
+              enabled={!!einvConfig?.enabled}
+              canManage={can(ctx.role, "sales:void")}
+              state={{ status: (sale.einvoice?.status ?? "none") as "none", irn: sale.einvoice?.irn ?? undefined, ackNo: sale.einvoice?.ackNo ?? undefined, ackDt: sale.einvoice?.ackDt ?? undefined, ewbNo: sale.einvoice?.ewbNo ?? undefined, ewbValidTill: sale.einvoice?.ewbValidTill ?? undefined, errors: sale.einvoice?.errors ?? [] }}
+            />
+          )}
           <Card>
             <CardHeader>
               <CardTitle>Customer</CardTitle>

@@ -10,6 +10,9 @@ Multi-tenant inventory, billing and point-of-sale web app built with **Next.js 1
 | **Scanning** | USB/Bluetooth “keyboard” scanners detected anywhere on the page (adjustable speed) · phone/laptop camera (native BarcodeDetector, ZXing fallback for iPhone) · **pair a phone as a wireless scanner** for a PC by scanning a QR code |
 | **Printing** | 58/80 mm thermal receipts by browser print *or* silent direct ESC/POS over **USB, Serial, Bluetooth** (Chrome/Edge) · **LAN printers** via the included print bridge · cash-drawer kick · A4 GST tax invoice with amount in words · barcode label sheets (A4 21/65-up, 50×25 and 38×25 mm thermal) |
 | **Products** | Variants (size/colour…), units incl. kg/litre with decimals, HSN, tax rates, MRP, cost, images, categories, auto-generated EAN-13/SKU, archive |
+| **Offline POS** | Keeps billing when the internet drops: the POS opens from cache (service worker), finds products, serials and customers locally, numbers bills from the till's own GST-compliant series (e.g. `ST2/2627/00001`), prints receipts, and syncs automatically when back online. Conflicts (stock, credit limit, serials, price changes) are flagged for review, never lost |
+| **Serial numbers / IMEI** | Scan serials in on purchase, sell by scanning the IMEI, every unit tracked through returns, transfers, write-offs and counts; warranty lookup by serial; serials printed on bills |
+| **GST e-invoice & e-way bill** | Direct NIC IRP API (sandbox/production): IRN + signed QR on B2B invoices and credit notes, cancel within 24 h, e-way bill by IRN; pre-checks GSTIN checksum, HSN, PIN and totals; JSON downloads for manual portal upload; credentials encrypted at rest |
 | **Inventory** | Multiple shops/warehouses, batches & expiry with first-expiry-first-out selling, adjustments with reasons, transfers, scan-to-count stock takes, full movement history, low-stock alerts |
 | **Purchasing** | Purchase orders, scan-to-receive (partial deliveries), batch/expiry capture, supplier returns, supplier balances & payments |
 | **Customers** | Credit (on account) sales with credit limits, dues, receive payments (oldest bills first), purchase history, WhatsApp bill sharing |
@@ -54,6 +57,8 @@ To use your own settings, copy `env.example` to `.env.local` and fill it in:
 | `SMTP_URL` | production | e.g. `smtps://user:pass@smtp.example.com:465` |
 | `MAIL_FROM` | | Sender address |
 | `UPLOAD_DIR` | | Where product images/logos are stored (default `./uploads`) |
+| `ENCRYPTION_KEY` | | 32+ chars; encrypts stored GST API credentials (defaults to a key derived from `BETTER_AUTH_SECRET`; set it so rotating the auth secret doesn't invalidate them) |
+| `NIC_EXTRA_HOSTS` | | Extra e-invoice API hosts allowed besides NIC's own (e.g. your GSP), comma separated |
 
 ## Deploy
 
@@ -70,6 +75,19 @@ docker compose up -d --build
 This runs the app and MongoDB 8 as a replica set, with persistent volumes for data and uploads. Put it behind a reverse proxy with HTTPS (Caddy, Nginx, Traefik) and set `APP_URL` to the https address.
 
 **Managed:** MongoDB Atlas + any Node host (Render, Railway, Fly.io, a VM). Run `npm ci && npm run build && npm start`, set the env variables, and give `UPLOAD_DIR` a persistent disk. (Serverless hosts need an object store for uploads; the upload code is a single file, `src/app/api/uploads/route.ts`.)
+
+## GST e-invoice setup
+
+1. On the e-invoice portal ([sandbox](https://einv-apisandbox.nic.in/) first), register for API access and note the **client ID, client secret, API username and password**. Download the **NIC public key** file for that environment.
+2. In StockPilot open **Settings → E-invoice & e-way bill**, paste these in, then click **Test saved connection**.
+3. Make sure Business profile has your GSTIN, legal name, address and PIN, that products carry HSN codes, and that B2B customers have a GSTIN, address and PIN.
+4. On any B2B tax invoice or credit note, click **Generate IRN**. The A4 invoice then prints the IRN, acknowledgement and signed QR code. Use **E-way bill** for consignments over ₹50,000.
+
+The client follows NIC's published scheme (RSA-encrypted login, AES-256 session key). It was verified against a mock IRP that uses the same encryption, not against the live portal. Test with your sandbox credentials before switching to production. If NIC or your GSP publishes different endpoint versions, change them under *Advanced: API paths*.
+
+## Offline billing
+
+Open the POS once while online on each till. That registers the till (T1, T2…) and downloads products, stock, serials and customers. After that the POS keeps working without internet: bills get their final number from the till's own series and print as usual. They sync automatically when the connection returns, and any that hit a conflict show up under **Sales → Needs review (offline)**. Returns, voids, held bills and creating new customers need a connection.
 
 ## Hardware guide
 
@@ -111,14 +129,17 @@ npm run test:int
 npm run e2e
 ```
 
-- **Unit tests:** tax engine (GST/VAT, inclusive, cess, discounts, rounding), money, scanner detection, ESC/POS encoding, receipt layout, CSV escaping, import parsing, print bridge.
+- **Unit tests:** tax engine (GST/VAT, inclusive, cess, discounts, rounding), money, scanner detection, ESC/POS encoding, receipt layout, CSV escaping, import parsing, print bridge, GSTIN checksum, e-invoice JSON builder/validator, offline numbering and receipts.
 - **Integration tests** (in-memory MongoDB replica set):
   - concurrent sales can never oversell
   - gap-free numbering under load
   - tenant isolation
   - returns, voids, credit limits, FEFO batches, purchase receiving
+  - serial numbers (including two tills racing to sell the same IMEI)
+  - offline sync (duplicates, stock conflicts, wrong-till numbers)
+  - e-invoice against a **mock NIC server** (login, IRN, duplicate IRN, e-way bill, cancel, SSRF guard, encrypted credentials)
   - a **role matrix** that calls every server action as every role
-- **End-to-end tests** (Playwright, production build): owner sign-up → onboarding → sale → return → team invites; then each invited role checks every page it may and may not open. Also covered: product creation and scan-to-sell, unknown-barcode flow, credit sale & payment collection, purchase receiving, CSV import, labels, device settings and phone-sized POS. **Every e2e test fails on any browser console error.**
+- **End-to-end tests** (Playwright, production build): owner sign-up → onboarding → sale → return → team invites; then each invited role checks every page it may and may not open. Also covered: serial lifecycle, offline selling with a page reload and sync, GST e-invoice + e-way bill through the UI, product creation and scan-to-sell, unknown-barcode flow, credit sale & payment collection, purchase receiving, CSV import, labels, device settings and phone-sized POS. **Every e2e test fails on any browser console error.**
 
 Project layout: `src/lib` holds pure logic (tax, money, scanner, ESC/POS). `src/server/services` holds business rules and transactions. `src/server/actions` holds the authorised server actions (`withAuth(permission, schema, fn)`). `src/app` holds pages, and `print-bridge/` holds the LAN printer relay.
 

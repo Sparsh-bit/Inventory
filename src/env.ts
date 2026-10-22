@@ -11,6 +11,10 @@ const schema = z.object({
   // "file" writes outgoing mail to .data/mail.log (used by E2E tests)
   MAIL_SINK: z.enum(["smtp", "console", "file"]).optional(),
   UPLOAD_DIR: z.string().default("./uploads"),
+  // Key for encrypting stored API credentials (defaults to one derived from BETTER_AUTH_SECRET).
+  ENCRYPTION_KEY: z.string().min(32).optional(),
+  // Extra hosts the GST e-invoice client may call (comma separated, e.g. a GSP or a local test server).
+  NIC_EXTRA_HOSTS: z.string().optional(),
 });
 
 // `next build` (e.g. in Docker/CI) runs without runtime secrets; validate strictly at runtime.

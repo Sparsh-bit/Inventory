@@ -14,6 +14,7 @@ export interface ReceiptData {
     subtotal: number; discountTotal: number; taxableTotal: number; cgst: number; sgst: number; igst: number; vat: number; cess: number; taxTotal: number; roundOff: number; grandTotal: number;
     payments: { method: string; amount: number }[]; change: number; balanceDue: number; returnOfNumber: string | null; notes: string;
     taxSummary: { rateBp: number; taxable: number; cgst: number; sgst: number; igst: number; vat: number; cess: number }[];
+    einvoice?: { irn: string; ackNo: string; ackDt: string; signedQr: string; ewbNo: string; cancelled: boolean } | null;
   };
 }
 

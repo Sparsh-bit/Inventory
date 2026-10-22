@@ -407,6 +407,12 @@ const loginAttemptSchema = new Schema(
 );
 export const LoginAttempt = model("LoginAttempt", loginAttemptSchema, false);
 
+const rateLimitSchema = new Schema(
+  { key: { type: String, required: true, unique: true }, count: { type: Number, default: 0 }, expiresAt: { type: Date, required: true, expires: 0 } },
+  { versionKey: false },
+);
+export const RateLimit = model("RateLimit", rateLimitSchema, false);
+
 export { Types };
 export type ProductDoc = InferSchemaType<typeof productSchema> & { _id: Types.ObjectId };
 export type VariantDoc = InferSchemaType<typeof variantSchema> & { _id: Types.ObjectId };

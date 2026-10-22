@@ -130,7 +130,7 @@ export async function completeSale(ctx: Ctx, input: Input) {
     };
     let saleId: string;
     if (input.heldId) {
-      const held = await Sale.findOneAndUpdate({ orgId: ctx.orgId, _id: input.heldId, status: "held" }, { $set: doc }, { session, new: true });
+      const held = await Sale.findOneAndUpdate({ orgId: ctx.orgId, _id: input.heldId, status: "held" }, { $set: doc }, { session, returnDocument: "after" });
       if (!held) throw new AppError("NOT_FOUND", "That held bill was already completed or deleted.");
       saleId = String(held._id);
     } else {

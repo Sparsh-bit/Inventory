@@ -7,6 +7,10 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["mongoose", "mongodb", "exceljs", "bwip-js"],
   experimental: {
     serverActions: { bodySizeLimit: "6mb" },
+    // The persistent Turbopack cache breaks when macOS writes "._*" metadata files into it
+    // (exFAT/external drives). Builds are a little slower without it, but always reliable.
+    turbopackFileSystemCacheForDev: false,
+    turbopackFileSystemCacheForBuild: false,
   },
   turbopack: {
     rules: {

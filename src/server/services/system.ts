@@ -18,11 +18,11 @@ function fiscalYear(date: Date, startMonth: number, timezone: string): string {
 export async function nextNumber(ctx: Ctx, docType: DocType, session?: ClientSession): Promise<{ seq: number; number: string }> {
   const settings = await OrgSettings.findOne({ orgId: ctx.orgId }, null, { session }).lean<OrgSettingsDoc>();
   if (docType === "barcode") {
-    const c = await Counter.findOneAndUpdate({ orgId: ctx.orgId, key: "barcode" }, { $inc: { seq: 1 } }, { upsert: true, new: true, session });
+    const c = await Counter.findOneAndUpdate({ orgId: ctx.orgId, key: "barcode" }, { $inc: { seq: 1 } }, { upsert: true, returnDocument: "after", session });
     return { seq: c!.seq, number: String(c!.seq) };
   }
   const fy = fiscalYear(new Date(), settings?.fiscalYearStartMonth ?? 4, settings?.timezone ?? "UTC");
-  const c = await Counter.findOneAndUpdate({ orgId: ctx.orgId, key: `${docType}:${fy}` }, { $inc: { seq: 1 } }, { upsert: true, new: true, session });
+  const c = await Counter.findOneAndUpdate({ orgId: ctx.orgId, key: `${docType}:${fy}` }, { $inc: { seq: 1 } }, { upsert: true, returnDocument: "after", session });
   const prefix = settings?.prefixes?.[docType] ?? docType.toUpperCase();
   return { seq: c!.seq, number: `${prefix}/${fy}/${String(c!.seq).padStart(5, "0")}` };
 }

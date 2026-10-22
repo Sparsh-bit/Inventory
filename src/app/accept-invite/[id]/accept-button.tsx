@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { authClient } from "@/lib/auth-client";
+import { acceptInviteAction } from "@/server/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -15,12 +15,11 @@ export function AcceptButton({ id }: { id: string }) {
       disabled={pending}
       onClick={async () => {
         setPending(true);
-        const res = await authClient.organization.acceptInvitation({ invitationId: id });
-        if (res.error) {
+        const res = await acceptInviteAction({ invitationId: id });
+        if (!res.ok) {
           setPending(false);
-          return toast.error(res.error.message ?? "Could not accept the invitation");
+          return toast.error(res.error);
         }
-        await authClient.organization.setActive({ organizationId: res.data.invitation.organizationId });
         router.replace("/dashboard");
         router.refresh();
       }}

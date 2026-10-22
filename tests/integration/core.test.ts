@@ -128,6 +128,29 @@ describe("stock & sales invariants", () => {
     await expect(svc.sales.completeSale(cashier, { ...cashSale(loc, variantId, 1, 1180), billDiscount: 500 })).rejects.toThrow(/manager/);
   });
 
+  it("ignores price overrides from roles without price:override", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 5);
+    const cashier = { ...c, role: "cashier" as const };
+    const { saleId } = await svc.sales.completeSale(cashier, { ...cashSale(loc, variantId), lines: [{ variantId, qty: 1, discount: 0, unitPrice: 1 }] });
+    const sale = await svc.models.Sale.findOne({ orgId: c.orgId, _id: saleId }).lean();
+    expect(sale!.lines[0].unitPrice).toBe(1000);
+    const manager = { ...c, role: "manager" as const };
+    const r = await svc.sales.completeSale(manager, { ...cashSale(loc, variantId, 1, 900), lines: [{ variantId, qty: 1, discount: 0, unitPrice: 900 }] });
+    expect((await svc.models.Sale.findOne({ orgId: c.orgId, _id: r.saleId }).lean())!.lines[0].unitPrice).toBe(900);
+  });
+
+  it("voids today's sale and restocks", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 5);
+    const { saleId } = await svc.sales.completeSale(c, cashSale(loc, variantId, 2, 2000));
+    await svc.sales.voidSale(c, saleId, "wrong item");
+    expect((await svc.models.StockLevel.findOne({ orgId: c.orgId, variantId }).lean())!.qty).toBe(5);
+    await expect(svc.sales.voidSale(c, saleId, "again")).rejects.toThrow(/not found/i);
+  });
+
   it("enforces customer credit limits", async () => {
     const c = ctx();
     const loc = await business(c);

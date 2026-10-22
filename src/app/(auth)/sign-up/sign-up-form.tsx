@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { authClient } from "@/lib/auth-client";
+import { signUpAction } from "@/server/actions/auth";
 import { FormField } from "@/components/app/form-field";
 import { PasswordInput } from "@/components/auth/password-input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -27,12 +27,9 @@ export function SignUpForm({ next }: { next: string }) {
     setPending(true);
     setError(null);
     const email = String(form.get("email"));
-    const { error } = await authClient.signUp.email({ name: String(form.get("name")), email, password, callbackURL: next });
+    const res = await signUpAction({ name: String(form.get("name")), email, password, next });
     setPending(false);
-    if (error) {
-      setError(error.status === 422 || error.code === "USER_ALREADY_EXISTS" ? "An account with this email already exists." : (error.message ?? "Could not create the account."));
-      return;
-    }
+    if (!res.ok) return setError(res.error);
     router.push(`/verify-email?email=${encodeURIComponent(email)}`);
   }
 

@@ -89,7 +89,7 @@ export async function receivePurchase(ctx: Ctx, poId: string, input: ReceiveLine
         const b = await Batch.findOneAndUpdate(
           { orgId: ctx.orgId, variantId: line.variantId, batchNo: r.batchNo },
           { $setOnInsert: { productId: line.productId, expiry: r.expiry ? new Date(r.expiry) : null }, $set: { costPrice: line.unitCost } },
-          { upsert: true, new: true, session },
+          { upsert: true, returnDocument: "after", session },
         );
         batchId = b!._id;
       }

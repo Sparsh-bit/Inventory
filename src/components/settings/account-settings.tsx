@@ -5,6 +5,7 @@ import QRCode from "qrcode";
 import { KeyRound, Laptop, LogOut, ShieldCheck, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
+import { changePasswordAction, confirmTwoFactorAction, disableTwoFactorAction, enableTwoFactorAction } from "@/server/actions/auth";
 import { FormField } from "@/components/app/form-field";
 import { PasswordInput } from "@/components/auth/password-input";
 import { Badge } from "@/components/ui/badge";
@@ -54,9 +55,9 @@ export function AccountSettings({ user, currentSessionId, sessions }: Props) {
     if (next !== String(f.get("confirm"))) return setPwErr("Passwords don't match.");
     setPwErr(undefined);
     setBusy("pw");
-    const r = await authClient.changePassword({ currentPassword: String(f.get("current")), newPassword: next, revokeOtherSessions: true });
+    const r = await changePasswordAction({ currentPassword: String(f.get("current")), newPassword: next });
     setBusy(null);
-    if (r.error) return setPwErr(r.error.status === 400 || r.error.status === 401 ? "Current password is incorrect." : (r.error.message ?? "Could not change password"));
+    if (!r.ok) return setPwErr(r.error);
     toast.success("Password changed. Other devices were signed out.");
     e.currentTarget.reset();
     router.refresh();
@@ -65,15 +66,14 @@ export function AccountSettings({ user, currentSessionId, sessions }: Props) {
   async function twoFactorPassword() {
     setBusy("2fa");
     if (twoFa?.enabling) {
-      const r = await authClient.twoFactor.enable({ password });
+      const r = await enableTwoFactorAction({ password });
       setBusy(null);
-      if (r.error) return toast.error(r.error.message ?? "Incorrect password");
-      if (r.data.method !== "totp") return toast.error("Authenticator setup is not available");
+      if (!r.ok) return toast.error(r.error);
       setTwoFa({ step: "verify", enabling: true, qr: await QRCode.toDataURL(r.data.totpURI, { margin: 1, width: 200 }), codes: r.data.backupCodes });
     } else {
-      const r = await authClient.twoFactor.disable({ password });
+      const r = await disableTwoFactorAction({ password });
       setBusy(null);
-      if (r.error) return toast.error(r.error.message ?? "Incorrect password");
+      if (!r.ok) return toast.error(r.error);
       toast.success("Two-step verification turned off");
       setTwoFa(null);
       router.refresh();
@@ -83,9 +83,9 @@ export function AccountSettings({ user, currentSessionId, sessions }: Props) {
 
   async function verify() {
     setBusy("2fa");
-    const r = await authClient.twoFactor.verifyTotp({ code: code.replace(/\s/g, "") });
+    const r = await confirmTwoFactorAction({ code: code.replace(/\s/g, "") });
     setBusy(null);
-    if (r.error) return toast.error("That code didn't match. Check your phone's time and try again.");
+    if (!r.ok) return toast.error(r.error);
     setTwoFa((t) => (t ? { ...t, step: "codes" } : t));
     setCode("");
   }

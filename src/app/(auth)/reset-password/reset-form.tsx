@@ -3,7 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { authClient } from "@/lib/auth-client";
+import { resetPasswordAction } from "@/server/actions/auth";
 import { FormField } from "@/components/app/form-field";
 import { PasswordInput } from "@/components/auth/password-input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -36,9 +36,9 @@ export function ResetPasswordForm({ token, invalid }: { token: string | null; in
     if (newPassword.length < 10) return setError("Use at least 10 characters.");
     if (newPassword !== String(form.get("confirm"))) return setError("Passwords don't match.");
     setPending(true);
-    const res = await authClient.resetPassword({ newPassword, token: token! });
+    const res = await resetPasswordAction({ newPassword, token: token! });
     setPending(false);
-    if (res.error) return setError(res.error.message ?? "Could not reset password.");
+    if (!res.ok) return setError(res.error);
     toast.success("Password updated. Please sign in.");
     router.replace("/sign-in");
   }

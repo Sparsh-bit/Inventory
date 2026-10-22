@@ -3,7 +3,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Building2, MailOpen, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { authClient } from "@/lib/auth-client";
+import { acceptInviteAction } from "@/server/actions/auth";
 import { BUSINESS_TYPES, INDIAN_STATES } from "@/lib/schemas";
 import { createBusiness } from "@/server/actions/onboarding";
 import { FormField } from "@/components/app/form-field";
@@ -62,8 +62,8 @@ export function OnboardingForm({ userName, invitations }: { userName: string; in
   }
 
   async function accept(id: string) {
-    const res = await authClient.organization.acceptInvitation({ invitationId: id });
-    if (res.error) return toast.error(res.error.message ?? "Could not accept the invitation");
+    const res = await acceptInviteAction({ invitationId: id });
+    if (!res.ok) return toast.error(res.error);
     router.replace("/dashboard");
     router.refresh();
   }

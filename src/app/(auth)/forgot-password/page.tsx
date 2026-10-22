@@ -1,13 +1,14 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { authClient } from "@/lib/auth-client";
+import { requestResetAction } from "@/server/actions/auth";
 import { FormField } from "@/components/app/form-field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { FieldGroup } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { toast } from "sonner";
 
 export default function ForgotPasswordPage() {
   const [pending, setPending] = useState(false);
@@ -16,8 +17,9 @@ export default function ForgotPasswordPage() {
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setPending(true);
-    await authClient.requestPasswordReset({ email: String(new FormData(e.currentTarget).get("email")), redirectTo: "/reset-password" });
+    const res = await requestResetAction({ email: String(new FormData(e.currentTarget).get("email")) });
     setPending(false);
+    if (!res.ok) return toast.error(res.error);
     setSent(true); // same message whether or not the account exists
   }
 

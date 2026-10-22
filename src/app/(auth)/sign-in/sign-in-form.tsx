@@ -3,7 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { authClient } from "@/lib/auth-client";
+import { resendVerificationAction, signInAction } from "@/server/actions/auth";
 import { FormField } from "@/components/app/form-field";
 import { PasswordInput } from "@/components/auth/password-input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -24,17 +24,14 @@ export function SignInForm({ next }: { next: string }) {
     const email = String(form.get("email"));
     setPending(true);
     setError(null);
-    const { data, error } = await authClient.signIn.email({ email, password: String(form.get("password")) });
+    const res = await signInAction({ email, password: String(form.get("password")) });
     setPending(false);
-    if (error) {
-      if (error.status === 403) {
-        setUnverified(email);
-        return;
-      }
-      setError(error.status === 429 ? (error.message ?? "Too many attempts. Please wait and try again.") : "Incorrect email or password.");
+    if (!res.ok) {
+      if (res.error === "UNVERIFIED") setUnverified(email);
+      else setError(res.error);
       return;
     }
-    if (data && "twoFactorRedirect" in data && data.twoFactorRedirect) {
+    if (res.data.twoFactor) {
       router.push("/two-factor");
       return;
     }
@@ -44,8 +41,9 @@ export function SignInForm({ next }: { next: string }) {
 
   async function resend() {
     if (!unverified) return;
-    await authClient.sendVerificationEmail({ email: unverified, callbackURL: "/dashboard" });
-    toast.success("Verification email sent. Check your inbox.");
+    const r = await resendVerificationAction({ email: unverified });
+    if (r.ok) toast.success("Verification email sent. Check your inbox.");
+    else toast.error(r.error);
   }
 
   return (

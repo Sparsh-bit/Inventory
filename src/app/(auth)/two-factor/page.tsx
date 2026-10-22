@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { authClient } from "@/lib/auth-client";
+import { verifyTwoFactorAction } from "@/server/actions/auth";
 import { FormField } from "@/components/app/form-field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -23,9 +23,9 @@ export default function TwoFactorPage() {
     const code = String(new FormData(e.currentTarget).get("code")).replace(/\s/g, "");
     setPending(true);
     setError(null);
-    const res = backup ? await authClient.twoFactor.verifyBackupCode({ code, trustDevice: trust }) : await authClient.twoFactor.verifyTotp({ code, trustDevice: trust });
+    const res = await verifyTwoFactorAction({ code, backup, trustDevice: trust });
     setPending(false);
-    if (res.error) return setError("That code didn't work. Try again.");
+    if (!res.ok) return setError(res.error);
     router.replace("/dashboard");
     router.refresh();
   }

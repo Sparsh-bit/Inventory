@@ -259,6 +259,7 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
 
   return (
     <div className="flex h-[calc(100dvh-3.5rem)] min-h-0">
+      <h1 className="sr-only">Point of Sale</h1>
       <section className="flex min-w-0 flex-1 flex-col">
         <div className="flex flex-wrap items-center gap-2 border-b p-3">
           <InputGroup className="h-10 min-w-0 flex-1 basis-60">

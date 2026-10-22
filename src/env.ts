@@ -17,13 +17,18 @@ const schema = z.object({
   ENCRYPTION_KEY: z.string().min(32).optional(),
   // Extra hosts the GST e-invoice client may call (comma separated, e.g. a GSP or a local test server).
   NIC_EXTRA_HOSTS: z.string().optional(),
+}).refine((e) => !(e.NODE_ENV === "production" && e.RESEND_API_KEY && /@localhost\b/.test(e.MAIL_FROM)), {
+  path: ["MAIL_FROM"],
+  message: "set MAIL_FROM to a sender on a domain verified in Resend, e.g. StockPilot <no-reply@yourdomain.com>",
 });
 
 // `next build` (e.g. in Docker/CI) runs without runtime secrets; validate strictly at runtime.
 const isBuild = process.env.NEXT_PHASE === "phase-production-build";
 // Railway exposes the generated domain; use it when APP_URL isn't set explicitly.
-const railwayUrl = process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : undefined;
-const parsed = schema.safeParse({ ...process.env, APP_URL: process.env.APP_URL || railwayUrl });
+// Blank variables (common in hosting dashboards) count as unset, so defaults apply.
+const raw = Object.fromEntries(Object.entries(process.env).filter(([, v]) => v?.trim()));
+const railwayUrl = raw.RAILWAY_PUBLIC_DOMAIN ? `https://${raw.RAILWAY_PUBLIC_DOMAIN}` : undefined;
+const parsed = schema.safeParse({ ...raw, APP_URL: raw.APP_URL ?? railwayUrl });
 if (!parsed.success && !isBuild) {
   const issues = parsed.error.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`).join("\n");
   throw new Error(`Invalid environment configuration:\n${issues}`);
@@ -31,4 +36,4 @@ if (!parsed.success && !isBuild) {
 
 export const env = parsed.success
   ? parsed.data
-  : schema.parse({ ...process.env, MONGODB_URI: "mongodb://build-placeholder", BETTER_AUTH_SECRET: "build-placeholder-".padEnd(40, "x"), APP_URL: "http://localhost:3000" });
+  : schema.parse({ ...raw, MONGODB_URI: "mongodb://build-placeholder", BETTER_AUTH_SECRET: "build-placeholder-".padEnd(40, "x"), APP_URL: "http://localhost:3000" });

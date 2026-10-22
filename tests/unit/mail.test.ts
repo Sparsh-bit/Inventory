@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 
 afterEach(() => {
+  for (const k of ["RESEND_API_KEY", "SMTP_URL", "ENCRYPTION_KEY", "MAIL_SINK", "MAIL_FROM", "UPLOAD_DIR", "APP_URL"]) delete process.env[k];
   vi.unstubAllGlobals();
   vi.resetModules();
 });
@@ -30,4 +31,22 @@ test("a Resend error is raised, not swallowed", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response('{"message":"domain not verified"}', { status: 403 })));
   const { sendMail } = await loadMail({ RESEND_API_KEY: "re_test_key" });
   await expect(sendMail("a@b.test", "Hi", "Hello")).rejects.toThrow(/403.*domain not verified/);
+});
+
+test("blank variables (as hosting dashboards save them) count as unset", async () => {
+  Object.assign(process.env, { RESEND_API_KEY: "", SMTP_URL: "", ENCRYPTION_KEY: "", MAIL_SINK: " ", MAIL_FROM: "", UPLOAD_DIR: "", APP_URL: "" });
+  vi.stubEnv("RAILWAY_PUBLIC_DOMAIN", "shop.up.railway.app");
+  const { env } = await import("@/env");
+  expect(env.RESEND_API_KEY).toBeUndefined();
+  expect(env.UPLOAD_DIR).toBe("./uploads");
+  expect(env.MAIL_FROM).toContain("StockPilot");
+  expect(env.APP_URL).toBe("https://shop.up.railway.app");
+  vi.unstubAllEnvs();
+});
+
+test("in production a Resend key needs a real sender address", async () => {
+  vi.stubEnv("NODE_ENV", "production");
+  Object.assign(process.env, { MONGODB_URI: "mongodb://localhost/x", BETTER_AUTH_SECRET: "x".repeat(40), APP_URL: "http://localhost:3000", RESEND_API_KEY: "re_live", MAIL_FROM: "" });
+  await expect(import("@/env")).rejects.toThrow(/MAIL_FROM/);
+  vi.unstubAllEnvs();
 });

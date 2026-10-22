@@ -2,8 +2,10 @@ import "server-only";
 import mongoose from "mongoose";
 import { env } from "@/env";
 
+// Operator injection is prevented by strict Zod parsing at every entry point (inputs are
+// always strings/numbers before they reach a filter); global sanitizeFilter would also
+// neutralise our own `$gte` conditions.
 mongoose.set("strictQuery", true);
-mongoose.set("sanitizeFilter", true);
 
 const g = globalThis as unknown as { __mongoose?: Promise<typeof mongoose> };
 

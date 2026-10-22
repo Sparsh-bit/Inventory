@@ -1,0 +1,149 @@
+import "server-only";
+import { AppError, type Ctx } from "../context";
+import { Batch, Location, Party, Product, PurchaseOrder, TaxRate, Types, type ProductDoc } from "../models";
+import { inTransaction } from "../with-auth";
+import { applyMoves } from "./stock";
+import { audit, nextNumber } from "./system";
+
+export interface PoInput {
+  supplierId: string;
+  locationId: string;
+  expectedDate: string | null;
+  supplierInvoiceNo: string;
+  notes: string;
+  lines: { variantId: string; qty: number; unitCost: number }[];
+}
+
+const lineValue = (qty: number, unitCost: number, scale: number, rateBp: number) => {
+  const base = Math.round((unitCost * qty) / scale);
+  return base + Math.round((base * rateBp) / 10000);
+};
+
+async function buildLines(ctx: Ctx, lines: PoInput["lines"]) {
+  const products = await Product.find({ orgId: ctx.orgId, "variants._id": { $in: lines.map((l) => l.variantId) } }).lean<ProductDoc[]>();
+  const rates = new Map((await TaxRate.find({ orgId: ctx.orgId }).lean()).map((r) => [String(r._id), r.rateBp + (r.cessBp ?? 0)]));
+  return lines.map((l) => {
+    const p = products.find((x) => x.variants.some((v) => String(v._id) === l.variantId));
+    const v = p?.variants.find((x) => String(x._id) === l.variantId);
+    if (!p || !v) throw new AppError("INVALID", "One of the items no longer exists.");
+    return {
+      productId: p._id, variantId: v._id, name: [p.name, v.name].filter(Boolean).join(" - "), sku: v.sku,
+      qtyOrdered: l.qty, unitCost: l.unitCost, rateBp: p.taxRateId ? (rates.get(String(p.taxRateId)) ?? 0) : 0, scale: p.unit?.scale ?? 1,
+    };
+  });
+}
+
+export async function savePurchaseOrder(ctx: Ctx, id: string | null, input: PoInput) {
+  const [supplier, location] = await Promise.all([
+    Party.findOne({ orgId: ctx.orgId, _id: input.supplierId, kind: "supplier" }).lean(),
+    Location.findOne({ orgId: ctx.orgId, _id: input.locationId }).lean(),
+  ]);
+  if (!supplier) throw new AppError("INVALID", "Supplier not found");
+  if (!location) throw new AppError("INVALID", "Location not found");
+  const lines = await buildLines(ctx, input.lines);
+  const fields = { supplierId: supplier._id, supplierName: supplier.name, locationId: location._id, expectedDate: input.expectedDate ? new Date(input.expectedDate) : null, supplierInvoiceNo: input.supplierInvoiceNo, notes: input.notes };
+
+  if (id) {
+    const po = await PurchaseOrder.findOne({ orgId: ctx.orgId, _id: id });
+    if (!po) throw new AppError("NOT_FOUND", "Purchase order not found");
+    if (!["draft", "ordered"].includes(po.status)) throw new AppError("CONFLICT", "Received orders can't be edited.");
+    po.set({ ...fields, lines });
+    await po.save();
+    await audit(ctx, "update", "purchase", id, `Updated ${po.number}`);
+    return { id };
+  }
+  return inTransaction(async (session) => {
+    const { number } = await nextNumber(ctx, "purchase", session);
+    const [po] = await PurchaseOrder.create([{ orgId: ctx.orgId, number, status: "ordered", ...fields, lines, createdBy: ctx.userId }], { session });
+    await audit(ctx, "create", "purchase", String(po._id), `Created ${number}`, undefined, session);
+    return { id: String(po._id) };
+  });
+}
+
+export interface ReceiveLine {
+  lineId: string;
+  qty: number;
+  batchNo?: string;
+  expiry?: string | null;
+  unitCost?: number;
+}
+
+export async function receivePurchase(ctx: Ctx, poId: string, input: ReceiveLine[]) {
+  return inTransaction(async (session) => {
+    const po = await PurchaseOrder.findOne({ orgId: ctx.orgId, _id: poId }, null, { session });
+    if (!po) throw new AppError("NOT_FOUND", "Purchase order not found");
+    if (!["ordered", "partial", "draft"].includes(po.status)) throw new AppError("CONFLICT", "This order is already closed.");
+    const products = await Product.find({ orgId: ctx.orgId, _id: { $in: po.lines.map((l) => l.productId) } }, null, { session });
+    const moves = [];
+    let value = 0;
+    const receiptLines = [];
+    for (const r of input.filter((x) => x.qty > 0)) {
+      const line = po.lines.id(r.lineId);
+      if (!line) throw new AppError("INVALID", "Invalid order line");
+      const product = products.find((p) => String(p._id) === String(line.productId));
+      if (!product) throw new AppError("INVALID", `${line.name} no longer exists.`);
+      if (r.unitCost !== undefined) line.unitCost = r.unitCost;
+      let batchId: Types.ObjectId | null = null;
+      if (product.trackBatch) {
+        if (!r.batchNo) throw new AppError("INVALID", `Enter a batch number for ${line.name}.`);
+        const b = await Batch.findOneAndUpdate(
+          { orgId: ctx.orgId, variantId: line.variantId, batchNo: r.batchNo },
+          { $setOnInsert: { productId: line.productId, expiry: r.expiry ? new Date(r.expiry) : null }, $set: { costPrice: line.unitCost } },
+          { upsert: true, new: true, session },
+        );
+        batchId = b!._id;
+      }
+      line.qtyReceived += r.qty;
+      value += lineValue(r.qty, line.unitCost, line.scale ?? 1, line.rateBp ?? 0);
+      receiptLines.push({ lineId: line._id, qty: r.qty, batchNo: r.batchNo, expiry: r.expiry ? new Date(r.expiry) : undefined });
+      moves.push({ productId: String(line.productId), variantId: String(line.variantId), locationId: String(po.locationId), batchId: batchId ? String(batchId) : null, qtyDelta: r.qty, unitCost: line.unitCost, type: "purchase" as const, ref: { kind: "purchase", id: poId, number: po.number } });
+      const v = product.variants.id(line.variantId);
+      if (v) v.costPrice = line.unitCost;
+    }
+    if (!moves.length) throw new AppError("INVALID", "Enter the quantity received for at least one item.");
+    po.receipts.push({ at: new Date(), userId: ctx.userId, lines: receiptLines });
+    po.receivedValue += value;
+    po.status = po.lines.every((l) => l.qtyReceived >= l.qtyOrdered) ? "received" : "partial";
+    await po.save({ session });
+    for (const p of products) if (p.isModified()) await p.save({ session });
+    await applyMoves(ctx, moves, session);
+    await Party.updateOne({ orgId: ctx.orgId, _id: po.supplierId }, { $inc: { balance: value } }, { session });
+    await audit(ctx, "receive", "purchase", poId, `Received goods on ${po.number}`, undefined, session);
+    return { status: po.status };
+  });
+}
+
+export async function returnPurchase(ctx: Ctx, poId: string, input: { lineId: string; qty: number; batchNo?: string }[]) {
+  return inTransaction(async (session) => {
+    const po = await PurchaseOrder.findOne({ orgId: ctx.orgId, _id: poId }, null, { session });
+    if (!po) throw new AppError("NOT_FOUND", "Purchase order not found");
+    const moves = [];
+    let value = 0;
+    for (const r of input.filter((x) => x.qty > 0)) {
+      const line = po.lines.id(r.lineId);
+      if (!line) throw new AppError("INVALID", "Invalid order line");
+      if (r.qty > line.qtyReceived - line.qtyReturned) throw new AppError("INVALID", `You can return at most ${(line.qtyReceived - line.qtyReturned) / (line.scale ?? 1)} of ${line.name}.`);
+      let batchId: string | null = null;
+      if (r.batchNo) {
+        const b = await Batch.findOne({ orgId: ctx.orgId, variantId: line.variantId, batchNo: r.batchNo }, null, { session });
+        if (!b) throw new AppError("INVALID", `Batch ${r.batchNo} not found for ${line.name}.`);
+        batchId = String(b._id);
+      }
+      line.qtyReturned += r.qty;
+      value += lineValue(r.qty, line.unitCost, line.scale ?? 1, line.rateBp ?? 0);
+      moves.push({ productId: String(line.productId), variantId: String(line.variantId), locationId: String(po.locationId), batchId, qtyDelta: -r.qty, unitCost: line.unitCost, type: "purchase_return" as const, ref: { kind: "purchase", id: poId, number: po.number } });
+    }
+    if (!moves.length) throw new AppError("INVALID", "Enter a quantity to return.");
+    po.returnedValue += value;
+    await po.save({ session });
+    await applyMoves(ctx, moves, session);
+    await Party.updateOne({ orgId: ctx.orgId, _id: po.supplierId }, { $inc: { balance: -value } }, { session });
+    await audit(ctx, "return", "purchase", poId, `Returned goods on ${po.number}`, undefined, session);
+  });
+}
+
+export async function cancelPurchase(ctx: Ctx, poId: string) {
+  const r = await PurchaseOrder.updateOne({ orgId: ctx.orgId, _id: poId, status: { $in: ["draft", "ordered"] } }, { $set: { status: "cancelled" } });
+  if (!r.matchedCount) throw new AppError("CONFLICT", "Only orders with nothing received can be cancelled.");
+  await audit(ctx, "cancel", "purchase", poId, "Cancelled purchase order");
+}

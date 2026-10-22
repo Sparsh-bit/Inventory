@@ -18,6 +18,8 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { CameraScanButton } from "@/components/scanner/scan-tools";
+import { useScanner } from "@/components/scanner/use-scanner";
 
 export const UNITS: { code: string; label: string; scale: 1 | 1000 }[] = [
   { code: "pcs", label: "Pieces (pcs)", scale: 1 },
@@ -116,6 +118,13 @@ export function ProductForm({ product, categories, taxRates, locations, defaults
   }
 
   const setRow = (key: string, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  // A scan anywhere on the form fills the first variant that has no barcode yet.
+  useScanner((code) => {
+    const row = rows.find((r) => !r.barcodes.trim());
+    if (!row) return void toast.info("Every variant already has a barcode. Clear one to scan a new code into it.");
+    setRow(row.key, { barcodes: code });
+    toast.success(`Barcode ${code} added${rows.length > 1 ? ` to ${row.name || "the next variant"}` : ""}`);
+  });
 
   async function upload(files: FileList | null) {
     if (!files?.length) return;
@@ -202,7 +211,7 @@ export function ProductForm({ product, categories, taxRates, locations, defaults
         <Card>
           <CardHeader>
             <CardTitle>Pricing & stock</CardTitle>
-            <CardDescription>Leave SKU and barcode empty to generate them automatically. You can scan a barcode straight into the field.</CardDescription>
+            <CardDescription>Leave SKU and barcode empty to generate them automatically. Scan the product&apos;s barcode with your scanner or tap Scan to use the camera.</CardDescription>
           </CardHeader>
           <CardContent className="@container space-y-5">
             <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
@@ -275,7 +284,7 @@ export function ProductForm({ product, categories, taxRates, locations, defaults
                       <Input value={r.sku} onChange={(e) => setRow(r.key, { sku: e.target.value })} placeholder="Auto" maxLength={64} className="font-mono" />
                     </FormField>
                     <FormField label="Barcode" error={err(`variants.${i}.barcodes.0`)} className="col-span-2 @md:col-span-1">
-                      <Input data-scan-field value={r.barcodes} onChange={(e) => setRow(r.key, { barcodes: e.target.value })} placeholder="Scan or auto" className="font-mono" />
+                      <BarcodeInput value={r.barcodes} onChange={(e) => setRow(r.key, { barcodes: e.target.value })} onScan={(code) => setRow(r.key, { barcodes: code })} />
                     </FormField>
                     {!isEdit && (
                       <FormField label={`Opening stock (${unit.code})`} className="col-span-2 @md:col-span-1">
@@ -403,4 +412,14 @@ function toMinorSafe(s: string) {
   } catch {
     return 0;
   }
+}
+
+/** Barcode box + camera button. Props (incl. FormField's id/aria) go to the input so the label stays linked. */
+function BarcodeInput({ onScan, ...props }: React.ComponentProps<typeof Input> & { onScan: (code: string) => void }) {
+  return (
+    <div className="flex gap-2">
+      <Input data-scan-field placeholder="Scan or auto" className="font-mono" {...props} />
+      <CameraScanButton single label="Scan" onScan={onScan} />
+    </div>
+  );
 }

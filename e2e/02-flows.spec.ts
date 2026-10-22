@@ -10,9 +10,13 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(() => localStorage.setItem("stockpilot.printer", JSON.stringify({ autoPrint: false })));
 });
 
-test("create a product, then sell it by scanning its new barcode", async ({ page }) => {
-  await page.goto("/products/new?barcode=8909999000017");
+test("add a product by scanning its barcode, then sell it: qty starts at 1 and can be edited", async ({ page }) => {
+  await page.goto("/products/new");
   await page.getByLabel("Product name").fill("E2E Biscuits 200g");
+  // Scanner fires while the cursor is still in the name field: the code goes to the barcode field.
+  await scan(page, "8909999000017");
+  await expect(page.getByLabel("Product name")).toHaveValue("E2E Biscuits 200g");
+  await expect(page.getByLabel("Barcode", { exact: true })).toHaveValue("8909999000017");
   await page.getByLabel("Selling price", { exact: true }).fill("30");
   await page.getByLabel("Cost price").fill("22");
   await page.getByLabel(/Opening stock/).fill("12");
@@ -22,10 +26,14 @@ test("create a product, then sell it by scanning its new barcode", async ({ page
 
   await page.goto("/pos");
   await scan(page, "8909999000017");
-  await scan(page, "8909999000017");
   const cart = page.getByRole("list", { name: "Cart items" });
   await expect(cart.getByText("E2E Biscuits 200g")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Pay ₹60\.00/ })).toBeVisible();
+  const qty = page.getByLabel("Quantity of E2E Biscuits 200g");
+  await expect(qty).toHaveValue("1");
+  await expect(page.getByRole("button", { name: /Pay ₹30\.00/ })).toBeVisible();
+  await qty.fill("3");
+  await qty.press("Enter");
+  await expect(page.getByRole("button", { name: /Pay ₹90\.00/ })).toBeVisible();
   await page.keyboard.press("F4");
   await page.getByRole("button", { name: /Complete sale/ }).click();
   await expect(page.getByRole("dialog", { name: "Sale complete" })).toBeVisible();

@@ -35,6 +35,7 @@ export async function signIn(page: Page, email: string, password: string) {
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.waitForURL(/\/(dashboard|onboarding)/);
+  await page.waitForLoadState("networkidle");
 }
 
 export async function signUp(page: Page, user: { name: string; email: string; password: string }, next?: string) {

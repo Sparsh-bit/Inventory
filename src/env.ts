@@ -19,7 +19,9 @@ const schema = z.object({
 
 // `next build` (e.g. in Docker/CI) runs without runtime secrets; validate strictly at runtime.
 const isBuild = process.env.NEXT_PHASE === "phase-production-build";
-const parsed = schema.safeParse(process.env);
+// Railway exposes the generated domain; use it when APP_URL isn't set explicitly.
+const railwayUrl = process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : undefined;
+const parsed = schema.safeParse({ ...process.env, APP_URL: process.env.APP_URL || railwayUrl });
 if (!parsed.success && !isBuild) {
   const issues = parsed.error.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`).join("\n");
   throw new Error(`Invalid environment configuration:\n${issues}`);

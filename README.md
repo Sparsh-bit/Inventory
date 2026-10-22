@@ -74,7 +74,27 @@ docker compose up -d --build
 
 This runs the app and MongoDB 8 as a replica set, with persistent volumes for data and uploads. Put it behind a reverse proxy with HTTPS (Caddy, Nginx, Traefik) and set `APP_URL` to the https address.
 
-**Managed:** MongoDB Atlas + any Node host (Render, Railway, Fly.io, a VM). Run `npm ci && npm run build && npm start`, set the env variables, and give `UPLOAD_DIR` a persistent disk. (Serverless hosts need an object store for uploads; the upload code is a single file, `src/app/api/uploads/route.ts`.)
+**Railway (recommended managed host):**
+
+1. **Database:** create a free cluster on [MongoDB Atlas](https://www.mongodb.com/atlas) (Atlas is a replica set, which the app needs for transactions). Under *Network Access* allow `0.0.0.0/0`, or Railway's static egress IPs if you have them. Copy the `mongodb+srv://…` connection string and add a database name, e.g. `…mongodb.net/stockpilot?retryWrites=true&w=majority`. Railway's one-click MongoDB template is a single server without a replica set and will not work.
+2. **App:** in Railway choose *New project → Deploy from GitHub repo*. It finds `railway.json` and builds the `Dockerfile`.
+3. **Variables** (service → *Variables*):
+
+   | Variable | Value |
+   |---|---|
+   | `MONGODB_URI` | the Atlas string from step 1 |
+   | `BETTER_AUTH_SECRET` | output of `openssl rand -base64 48` |
+   | `SMTP_URL`, `MAIL_FROM` | your mail provider (needed: sign-up sends a verification email) |
+   | `ENCRYPTION_KEY` | another `openssl rand -base64 48` |
+   | `RAILWAY_RUN_UID` | `0` (lets the app write to the mounted volume) |
+   | `APP_URL` | only if you add a custom domain, e.g. `https://pos.example.com` (otherwise the Railway domain is used automatically) |
+
+4. **Uploads:** service → *Settings → Volumes → Add volume*, mount path `/data`. Product images and logos survive redeploys.
+5. **Domain:** *Settings → Networking → Generate domain* (or add your own). Railway serves it over HTTPS, which the camera scanner needs.
+
+Each deploy waits for `/api/health` to pass. It returns 503 with a clear message if MongoDB is unreachable or not a replica set.
+
+**Other hosts:** any Docker host (Render, Fly.io, a VM) works the same way: Atlas + the env variables + a persistent disk at `UPLOAD_DIR`. Without Docker run `npm ci && npm run build && npm start` (it listens on `$PORT`). Serverless hosts need an object store for uploads; the upload code is a single file, `src/app/api/uploads/route.ts`.
 
 ## GST e-invoice setup
 
@@ -139,7 +159,7 @@ npm run e2e
   - offline sync (duplicates, stock conflicts, wrong-till numbers)
   - e-invoice against a **mock NIC server** (login, IRN, duplicate IRN, e-way bill, cancel, SSRF guard, encrypted credentials)
   - a **role matrix** that calls every server action as every role
-- **End-to-end tests** (Playwright, production build): owner sign-up → onboarding → sale → return → team invites; then each invited role checks every page it may and may not open. Also covered: serial lifecycle, offline selling with a page reload and sync, GST e-invoice + e-way bill through the UI, product creation and scan-to-sell, unknown-barcode flow, credit sale & payment collection, purchase receiving, CSV import, labels, device settings and phone-sized POS. **Every e2e test fails on any browser console error.**
+- **End-to-end tests** (Playwright, production build): owner sign-up → onboarding → sale → return → team invites; then each invited role checks every page it may and may not open. Also covered: serial lifecycle, offline selling with a page reload and sync, GST e-invoice + e-way bill through the UI, product creation and scan-to-sell, unknown-barcode flow, credit sale & payment collection, purchase receiving, CSV import, labels, device settings and phone-sized POS. **Every e2e test fails on any browser console error.** A device pass then opens every page, checks nothing scrolls sideways, and completes a sale and opens its sale page on **Safari (macOS), iPhone, iPad, Android phone and a 1280×720 laptop**, plus Firefox where Playwright's Firefox runs (not yet on macOS 27).
 
 Project layout: `src/lib` holds pure logic (tax, money, scanner, ESC/POS). `src/server/services` holds business rules and transactions. `src/server/actions` holds the authorised server actions (`withAuth(permission, schema, fn)`). `src/app` holds pages, and `print-bridge/` holds the LAN printer relay.
 

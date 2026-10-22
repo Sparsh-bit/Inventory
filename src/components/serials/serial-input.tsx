@@ -63,7 +63,7 @@ export function SerialInput({
           }}
           onBlur={() => text.trim() && add(text)}
           placeholder={value.length ? "" : "Scan or type serial / IMEI, then Enter"}
-          className="min-w-32 flex-1 bg-transparent py-0.5 font-mono text-sm outline-none placeholder:font-sans placeholder:text-muted-foreground"
+          className="min-w-32 flex-1 bg-transparent py-0.5 font-mono text-base outline-none md:text-sm placeholder:font-sans placeholder:text-muted-foreground"
         />
       </div>
       <div className="flex flex-wrap items-center justify-between gap-1 text-xs text-muted-foreground">

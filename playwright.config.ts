@@ -1,7 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import { platform, release } from "node:os";
 
 const PORT = 3100;
+// ponytail: Playwright's Firefox build won't start on macOS 27 ("Could not find profile folder");
+// it still runs on Linux/Windows/older macOS. Drop this check once Playwright ships a fix.
+const firefoxWorks = !(platform() === "darwin" && Number(release().split(".")[0]) >= 27);
 const secret = (() => {
   try {
     return readFileSync(".data/dev-secret", "utf8").trim();
@@ -32,9 +36,19 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}`,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
-    ...devices["Desktop Chrome"],
-    viewport: { width: 1440, height: 900 },
   },
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } },
+    // Cross-browser / device pass over every page and a sale (needs the data the chromium run creates).
+    ...[
+      ...(firefoxWorks ? [["firefox", devices["Desktop Firefox"]]] : []),
+      ["safari", devices["Desktop Safari"]],
+      ["android-phone", devices["Pixel 7"]],
+      ["iphone", devices["iPhone 15"]],
+      ["ipad", devices["iPad (gen 7)"]],
+      ["small-laptop", { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 720 } }],
+    ].map(([name, use]) => ({ name: name as string, use: use as (typeof devices)[string], testMatch: /07-devices/, dependencies: ["chromium"] })),
+  ],
   webServer: {
     command: `npx next build && npx next start -p ${PORT}`,
     url: `http://localhost:${PORT}/sign-in`,

@@ -15,6 +15,11 @@ const canKind = (ctx: Ctx, kind: string) => (kind === "supplier" ? can(ctx.role,
 
 export const upsertParty = withAuth("parties:read", z.object({ id: objectId.nullable(), data: partyInput }).strict(), async (ctx, { id, data }) => {
   if (!canKind(ctx, data.kind)) throw new AppError("FORBIDDEN", "You don't have permission to do that.");
+  if (id && !can(ctx.role, "ledger:reverse")) {
+    // Changing an existing opening balance moves what the person owes: owners and managers only.
+    const before = await Party.findOne({ orgId: ctx.orgId, _id: id }, { openingBalance: 1 }).lean();
+    if (before && before.openingBalance !== data.openingBalance) throw new AppError("FORBIDDEN", "Only an owner or manager can change an opening balance. Use udhaar or a payment instead.");
+  }
   const r = await saveParty(ctx, id, data);
   revalidatePath(data.kind === "customer" ? "/customers" : "/suppliers");
   return { id: r.id };

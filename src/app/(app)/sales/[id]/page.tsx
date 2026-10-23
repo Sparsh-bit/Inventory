@@ -59,6 +59,7 @@ export default async function SalePage({ params }: PageProps<"/sales/[id]">) {
             canReturn={returnable && can(ctx.role, "sales:return")}
             canVoid={!isReturn && sale.status === "completed" && can(ctx.role, "sales:void")}
             hasCustomer={!!sale.customerId}
+            balanceDue={sale.balanceDue ?? 0}
             lines={sale.lines.map((l, i) => ({ index: i, name: l.name ?? "", sold: l.qty, returned: l.returnedQty ?? 0, scale: l.scale ?? 1, unit: l.unit ?? "", total: l.total ?? 0, serials: l.serials ?? [] }))}
           />
         }

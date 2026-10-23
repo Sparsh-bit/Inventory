@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { safePath } from "@/lib/safe-path";
 import { verifyTwoFactorAction } from "@/server/actions/auth";
 import { FormField } from "@/components/app/form-field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -26,7 +27,7 @@ export default function TwoFactorPage() {
     const res = await verifyTwoFactorAction({ code, backup, trustDevice: trust });
     setPending(false);
     if (!res.ok) return setError(res.error);
-    router.replace("/dashboard");
+    router.replace(safePath(new URLSearchParams(window.location.search).get("next")) ?? "/dashboard");
     router.refresh();
   }
 

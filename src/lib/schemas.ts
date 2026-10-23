@@ -141,7 +141,9 @@ export const receiptSettingsInput = z
         return: z.string().regex(/^[A-Z0-9]{1,4}$/, "1-4 capital letters/digits"),
         purchase: z.string().regex(/^[A-Z0-9]{1,4}$/, "1-4 capital letters/digits"),
       })
-      .strict(),
+      .strict()
+      // Bills, invoices and credit notes share one number space, so their prefixes must differ.
+      .refine((p) => new Set([p.sale, p.invoice, p.return]).size === 3, { message: "Receipt, invoice and return prefixes must all be different", path: ["invoice"] }),
     scanner: z.object({ interKeyMs: z.number().int().min(5).max(200), minLength: z.number().int().min(2).max(20) }).strict(),
   })
   .strict();

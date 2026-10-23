@@ -17,7 +17,7 @@ export default async function ReceiptPrintPage({ params, searchParams }: PagePro
   const d = await getReceiptData(ctx, id).catch(() => null);
   if (!d) notFound();
   const width = sp.w === "58" ? 58 : sp.w === "80" ? 80 : d.org.paperWidth;
-  const qr = d.org.showUpiQr && d.org.upiId && d.sale.kind !== "return" ? await QRCode.toDataURL(upiLink(d, d.sale.balanceDue || d.sale.grandTotal), { margin: 0, width: 160 }) : null;
+  const qr = d.org.showUpiQr && d.org.upiId && d.sale.kind !== "return" && d.sale.status !== "void" && d.sale.balanceDue > 0 ? await QRCode.toDataURL(upiLink(d, d.sale.balanceDue), { margin: 0, width: 160 }) : null;
 
   return (
     <div className="min-h-dvh bg-neutral-100 py-6 text-black print:bg-white print:py-0">

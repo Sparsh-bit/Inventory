@@ -118,7 +118,7 @@ export function DeviceSettings() {
             <span className="text-sm">{lastScan ? <>Scanner works. Read: <code className="font-mono font-semibold">{lastScan}</code></> : "Waiting for a scan…"}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <CameraScanButton onScan={(c) => setLastScan(c)} single label="Test camera" />
+            <CameraScanButton onScan={(c) => setLastScan(c)} label="Test camera" />
             <p className="text-xs text-muted-foreground">No scanner? The phone or laptop camera works too, and on the POS you can pair a phone as a wireless scanner.</p>
           </div>
         </CardContent>

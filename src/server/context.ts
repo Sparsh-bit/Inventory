@@ -33,15 +33,18 @@ export const loadCtx = cache(async (): Promise<Ctx | null> => {
   const h = await headers();
   const session = await auth.api.getSession({ headers: h });
   if (!session) return null;
-  const orgId = session.session.activeOrganizationId;
-  if (!orgId) return null;
   const { connection } = await connectDb();
   const db = connection.db!;
-  const [org, member] = await Promise.all([
-    db.collection("organization").findOne({ _id: new Types.ObjectId(orgId) }, { projection: { name: 1 } }),
-    db.collection("member").findOne({ organizationId: new Types.ObjectId(orgId), userId: new Types.ObjectId(session.user.id) }, { projection: { role: 1 } }),
-  ]);
-  if (!org || !member || !isRole(member.role)) return null;
+  const userId = new Types.ObjectId(session.user.id);
+  const active = session.session.activeOrganizationId;
+  // The active business, or (after being removed from it) the first business the user still belongs to.
+  const member =
+    (active ? await db.collection("member").findOne({ organizationId: new Types.ObjectId(active), userId }, { projection: { role: 1, organizationId: 1 } }) : null) ??
+    (await db.collection("member").findOne({ userId }, { projection: { role: 1, organizationId: 1 }, sort: { createdAt: 1 } }));
+  if (!member || !isRole(member.role)) return null;
+  const orgId = String(member.organizationId);
+  const org = await db.collection("organization").findOne({ _id: member.organizationId }, { projection: { name: 1 } });
+  if (!org) return null;
   return {
     userId: session.user.id,
     userName: session.user.name,
@@ -49,7 +52,7 @@ export const loadCtx = cache(async (): Promise<Ctx | null> => {
     orgId,
     orgName: String(org.name),
     role: member.role,
-    ip: h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? undefined,
+    ip: h.get("x-forwarded-for")?.split(",").at(-1)?.trim() ?? undefined,
     ua: h.get("user-agent") ?? undefined,
   };
 });

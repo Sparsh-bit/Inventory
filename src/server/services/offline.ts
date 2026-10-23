@@ -9,6 +9,7 @@ import { AppError, getOrgSettings, type Ctx } from "../context";
 import { Batch, Device, Location, OrgSettings, Party, Sale, SerialNumber, type OrgSettingsDoc } from "../models";
 import { inTransaction } from "../with-auth";
 import { catalogSnapshot, getVariantHits } from "./products";
+import { CASHIER_MAX_DISCOUNT_PCT } from "./sales";
 import { postLedger } from "./ledger";
 import { applyMoves, pickBatchesFefo } from "./stock";
 import { audit } from "./system";
@@ -137,6 +138,9 @@ export async function syncOfflineSale(ctx: Ctx, deviceCode: string, deviceId: st
         lines: priced.map((p) => ({ unitPrice: p.unitPrice, qty: p.qty, scale: p.hit.scale, discount: p.discount, rateBp: p.hit.rateBp, cessBp: p.hit.cessBp, inclusive: p.hit.inclusive })),
         billDiscount: input.billDiscount, mode: settings.taxMode as "GST", interState, roundOff: settings.roundOff,
       });
+      if (!can(ctx.role, "price:override") && bill.discountTotal * 100 > bill.subtotal * CASHIER_MAX_DISCOUNT_PCT) {
+        issues.push({ code: "discount_exceeded", message: `Discount of ${bill.discountTotal / 100} is above the ${CASHIER_MAX_DISCOUNT_PCT}% a cashier may give` });
+      }
       if (bill.grandTotal !== input.grandTotal) issues.push({ code: "total_changed", message: `Printed total ${input.grandTotal / 100}, recalculated ${bill.grandTotal / 100} (tax or price data changed while offline)` });
 
       const tendered = input.payments.reduce((a, p) => a + p.amount, 0);

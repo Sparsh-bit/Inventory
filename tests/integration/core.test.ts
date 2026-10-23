@@ -12,6 +12,8 @@ let svc: {
   purchases: typeof import("@/server/services/purchases");
   parties: typeof import("@/server/services/parties");
   ledger: typeof import("@/server/services/ledger");
+  inventory: typeof import("@/server/services/inventory");
+  reports: typeof import("@/server/services/reports");
   models: typeof import("@/server/models");
 };
 
@@ -54,6 +56,8 @@ beforeAll(async () => {
     purchases: await import("@/server/services/purchases"),
     parties: await import("@/server/services/parties"),
     ledger: await import("@/server/services/ledger"),
+    inventory: await import("@/server/services/inventory"),
+    reports: await import("@/server/services/reports"),
     models: await import("@/server/models"),
   };
   await Promise.all(Object.values(mongoose.models).map((m) => m.init()));
@@ -433,5 +437,89 @@ describe("supplier payments against chosen invoices, and the khata ledger", () =
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     expect((await svc.models.Party.findOne({ orgId: c.orgId, _id: cust }).lean())!.balance).toBe(1000);
     expect(await svc.models.LedgerEntry.countDocuments({ orgId: c.orgId, partyId: cust, kind: "reversal" })).toBe(1);
+  });
+});
+
+describe("regression tests for the bug sweep", () => {
+  const party = (c: Ctx, kind: "customer" | "supplier", name: string, openingBalance = 0) =>
+    svc.parties.saveParty(c, null, { kind, name, phone: "", email: "", taxId: "", stateCode: "", address: {}, creditLimit: 0, openingBalance, notes: "" });
+
+  it("a return can't list the same bill line twice (no double refunds)", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 10);
+    const { saleId } = await svc.sales.completeSale(c, cashSale(loc, variantId, 5, 5000));
+    await expect(svc.sales.returnSale(c, saleId, [{ lineIndex: 0, qty: 5 }, { lineIndex: 0, qty: 5 }], "cash", "x")).rejects.toThrow(/only be listed once/);
+    expect((await svc.models.StockLevel.findOne({ orgId: c.orgId, variantId }).lean())!.qty).toBe(5);
+  });
+
+  it("returning goods from an unpaid credit bill clears the due instead of paying out cash", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 10);
+    const { id: cust } = await party(c, "customer", "Due");
+    const { saleId } = await svc.sales.completeSale(c, { ...cashSale(loc, variantId, 1, 0), customerId: cust, payments: [{ method: "credit" as const, amount: 1000, reference: "" }] });
+    const r = await svc.sales.returnSale(c, saleId, [{ lineIndex: 0, qty: 1 }], "cash", "unwanted");
+    expect(r).toMatchObject({ offDue: 1000, payBack: 0 });
+    expect((await svc.models.Party.findOne({ orgId: c.orgId, _id: cust }).lean())!.balance).toBe(0);
+    expect((await svc.models.Sale.findOne({ orgId: c.orgId, _id: saleId }).lean())!.balanceDue).toBe(0);
+    const ret = await svc.models.Sale.findOne({ orgId: c.orgId, _id: r.saleId }).lean();
+    expect(ret!.payments).toEqual([{ method: "credit", amount: 1000 }]);
+  });
+
+  it("can't receive more than was ordered", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 0);
+    const { id: sup } = await party(c, "supplier", "S");
+    const { id: po } = await svc.purchases.savePurchaseOrder(c, null, { supplierId: sup, locationId: loc, expectedDate: null, supplierInvoiceNo: "", notes: "", lines: [{ variantId, qty: 10, unitCost: 100 }] });
+    const lineId = String((await svc.models.PurchaseOrder.findOne({ orgId: c.orgId, _id: po }).lean())!.lines[0]._id);
+    await expect(svc.purchases.receivePurchase(c, po, [{ lineId, qty: 20 }])).rejects.toThrow(/only 10 left to receive/);
+    await svc.purchases.receivePurchase(c, po, [{ lineId, qty: 10 }]);
+    expect((await svc.models.StockLevel.findOne({ orgId: c.orgId, variantId }).lean())!.qty).toBe(10);
+  });
+
+  it("a stock count with the same item on several lines adds them up", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 1);
+    await svc.inventory.postStockCount(c, { locationId: loc, lines: [1, 1, 1].map((counted) => ({ variantId, batchId: null, counted })) });
+    expect((await svc.models.StockLevel.findOne({ orgId: c.orgId, variantId }).lean())!.qty).toBe(3);
+  });
+
+  it("editing a product can't take over another product's variant or change the unit while in stock", async () => {
+    const c = ctx();
+    await business(c);
+    const a = await product(c, 5);
+    const b = await product(c, 0);
+    const base = { name: "Widget", description: "", categoryId: null, brand: "", unitCode: "pcs", unitScale: 1 as const, hsn: "", taxRateId: null, priceIncludesTax: true, trackBatch: false, trackSerial: false, warrantyMonths: 0, reorderLevel: 0, images: [], active: true };
+    const v = { name: "", sku: "", barcodes: [], attributes: [], costPrice: 500, salePrice: 1000, mrp: 0, active: true, openingQty: 0 };
+    await expect(svc.products.updateProduct(c, b.productId, { ...base, variants: [{ ...v, id: a.variantId }] } as never)).rejects.toThrow(/doesn't belong/);
+    await expect(svc.products.updateProduct(c, a.productId, { ...base, unitCode: "kg", unitScale: 1000, variants: [{ ...v, id: a.variantId }] } as never)).rejects.toThrow(/no stock/);
+  });
+
+  it("a contact with a balance can't be archived", async () => {
+    const c = ctx();
+    await business(c);
+    const { id } = await party(c, "customer", "Owes", 500);
+    await expect(svc.parties.setPartyActive(c, id, false)).rejects.toThrow(/still has a balance/);
+    await svc.parties.recordPayment(c, { partyId: id, amount: 500, method: "cash", reference: "", date: null });
+    await svc.parties.setPartyActive(c, id, false);
+    expect((await svc.models.Party.findOne({ orgId: c.orgId, _id: id }).lean())!.active).toBe(false);
+  });
+
+  it("purchase report counts goods when received and money when paid", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 0);
+    const { id: sup } = await party(c, "supplier", "R");
+    const { id: po } = await svc.purchases.savePurchaseOrder(c, null, { supplierId: sup, locationId: loc, expectedDate: null, supplierInvoiceNo: "", notes: "", lines: [{ variantId, qty: 4, unitCost: 250 }] });
+    const lineId = String((await svc.models.PurchaseOrder.findOne({ orgId: c.orgId, _id: po }).lean())!.lines[0]._id);
+    await svc.purchases.receivePurchase(c, po, [{ lineId, qty: 4 }]);
+    await svc.parties.recordPayment(c, { partyId: sup, amount: 400, method: "cash", reference: "", date: null });
+    const t = await svc.reports.purchaseTotals(c, new Date(Date.now() - 86_400_000), new Date(Date.now() + 86_400_000));
+    expect(t).toEqual({ received: 1000, returned: 0, paid: 400, count: 1 });
+    const old = await svc.reports.purchaseTotals(c, new Date("2020-01-01"), new Date("2020-02-01"));
+    expect(old.received).toBe(0);
   });
 });

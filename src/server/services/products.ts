@@ -81,6 +81,9 @@ export async function updateProduct(ctx: Ctx, id: string, input: Input) {
   return inTransaction(async (session) => {
     const existing = await Product.findOne({ orgId: ctx.orgId, _id: id }, null, { session });
     if (!existing) throw new AppError("NOT_FOUND", "Product not found");
+    const ownIds = new Set(existing.variants.map((v) => String(v._id)));
+    const foreign = input.variants.find((v) => v.id && !ownIds.has(v.id));
+    if (foreign) throw new AppError("INVALID", "One of the variants doesn't belong to this product. Reload the page and try again.");
     const keptIds = new Set(input.variants.filter((v) => v.id).map((v) => v.id));
     const removed = existing.variants.filter((v) => !keptIds.has(String(v._id)));
     if (removed.length) {
@@ -88,9 +91,9 @@ export async function updateProduct(ctx: Ctx, id: string, input: Input) {
       if ([...stock.values()].some((q) => q !== 0)) throw new AppError("CONFLICT", "A variant with stock can't be removed. Mark it inactive instead.");
     }
     const variants = await prepareVariants(ctx, input, session);
-    if (existing.trackSerial !== input.trackSerial || existing.trackBatch !== input.trackBatch) {
+    if (existing.trackSerial !== input.trackSerial || existing.trackBatch !== input.trackBatch || (existing.unit?.scale ?? 1) !== input.unitScale) {
       const stock = await stockByVariant(ctx, existing.variants.map((v) => String(v._id)));
-      if ([...stock.values()].some((q) => q !== 0)) throw new AppError("CONFLICT", "Batch or serial tracking can only be changed while the product has no stock.");
+      if ([...stock.values()].some((q) => q !== 0)) throw new AppError("CONFLICT", "The unit, batch or serial tracking can only be changed while the product has no stock.");
     }
     existing.set({ ...fields(input), variants });
     await existing.save({ session });

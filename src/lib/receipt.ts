@@ -80,8 +80,9 @@ export function receiptToEscPos(d: ReceiptData, opts: { openDrawer?: boolean } =
   const items = d.sale.lines.reduce((a, l) => a + (l.scale === 1 ? l.qty : 1), 0);
   p.line(`Items: ${d.sale.lines.length}  Qty: ${items}`);
   p.divider();
-  if (d.org.showUpiQr && d.org.upiId && d.sale.kind !== "return") {
-    p.align("center").line("Scan to pay with UPI").qr(upiLink(d, d.sale.balanceDue || d.sale.grandTotal), width === 32 ? 5 : 6).feed(1);
+  // Only when something is still owed, for exactly that amount (a paid bill must not invite a second payment).
+  if (d.org.showUpiQr && d.org.upiId && d.sale.kind !== "return" && d.sale.status !== "void" && d.sale.balanceDue > 0) {
+    p.align("center").line("Scan to pay with UPI").qr(upiLink(d, d.sale.balanceDue), width === 32 ? 5 : 6).feed(1);
   }
   p.align("center");
   if (d.org.footer) p.line(d.org.footer);

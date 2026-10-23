@@ -78,6 +78,7 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
     }
   }, 180);
   const results = term ? search.data : null;
+  const freshResults = term && search.fresh ? search.data : null; // Enter must never act on an older search
   const searching = search.loading;
 
   const interState = org.taxMode === "GST" && !!customer?.stateCode && !!config.orgStateCode && customer.stateCode !== config.orgStateCode;
@@ -140,7 +141,11 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
           const res = await lookupCode({ code, locationId });
           found = res.ok ? res.data : null;
         } catch (e) {
-          if (!isNetworkError(e)) throw e;
+          if (!isNetworkError(e)) {
+            scanFeedback(false);
+            toast.error("Couldn't look up that code. Please try again.");
+            return;
+          }
           found = offline.lookupLocal(code);
         }
       } else found = offline.lookupLocal(code);
@@ -181,11 +186,13 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
     startPay(async () => {
       const paid = tenders.reduce((a, t) => a + t.amount, 0);
       const clientId = crypto.randomUUID();
-      const finish = (saleId: string | null, number: string, local?: CompletedSale["local"]) => {
+      const finish = (saleId: string | null, number: string, local?: CompletedSale["local"], server?: { total: number; change: number }) => {
         setPayOpen(false);
-        setDone({ saleId, number, total: bill.grandTotal, change: Math.max(0, paid - bill.grandTotal), paidCash: tenders.some((t) => t.method === "cash"), customerPhone: customer?.phone ?? "", local });
+        setDone({ saleId, number, total: server?.total ?? bill.grandTotal, change: server?.change ?? Math.max(0, paid - bill.grandTotal), paidCash: tenders.some((t) => t.method === "cash"), customerPhone: customer?.phone ?? "", local });
       };
       const sellOffline = async () => {
+        // A resumed held bill lives on the server; selling it offline could sell it twice.
+        if (heldId) return void toast.error("This bill was resumed from Held bills and needs the internet to complete. Reconnect and try again.");
         const r = await offline.checkoutOffline({ lines, customer, billDiscount, kind, payments: tenders, locationId, cashierName: org.userName, clientId });
         if (r) finish(null, r.number, r.receipt);
       };
@@ -193,7 +200,7 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
       try {
         const res = await checkout({ ...payload(), payments: tenders, clientId });
         if (!res.ok) return void toast.error(res.error);
-        finish(res.data.saleId, res.data.number);
+        finish(res.data.saleId, res.data.number, undefined, { total: res.data.total, change: res.data.change });
         router.refresh();
       } catch (e) {
         // Connection dropped mid-sale: save it offline with the same clientId (sync de-duplicates).
@@ -204,7 +211,7 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
   }
 
   function hold() {
-    if (!lines.length) return;
+    if (!lines.length || holding || paying) return;
     if (!offline.online) return void toast.error("Holding bills needs an internet connection.");
     startHold(async () => {
       const res = await holdBill({ ...payload(), payments: [] });
@@ -218,7 +225,9 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
     if (lines.length && !confirm("Replace the current cart with the held bill?")) return;
     const res = await resumeHeldBill({ id });
     if (!res.ok) return void toast.error(res.error);
-    setLines(res.data.lines.map((l) => ({ key: crypto.randomUUID(), hit: l.hit!, qty: l.qty, discount: l.discount, unitPrice: l.unitPrice, batchId: null, serials: l.serials ?? [] })));
+    // Prices may have changed since the bill was held; only staff who can override prices keep the old one.
+    const keepPrice = org.can("price:override");
+    setLines(res.data.lines.map((l) => ({ key: crypto.randomUUID(), hit: l.hit!, qty: l.qty, discount: l.discount, unitPrice: keepPrice ? l.unitPrice : l.hit!.salePrice, batchId: null, serials: l.serials ?? [] })));
     setCustomer(res.data.customer);
     setBillDiscount(res.data.billDiscount);
     setKind(res.data.kind);
@@ -226,9 +235,10 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
     setHeldOpen(false);
   }
 
-  // Keyboard shortcuts.
+  // Keyboard shortcuts (not while a dialog is open or a sale is being saved).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (payOpen || done || serialFor || heldOpen || paying || holding) return;
       if (e.key === "F2") {
         e.preventDefault();
         searchRef.current?.focus();
@@ -334,10 +344,10 @@ export function PosScreen({ locations, quick, config }: { locations: { id: strin
               onKeyDown={(e) => {
                 if (e.key === "Enter" && q.trim()) {
                   e.preventDefault();
-                  if (results?.length === 1) {
-                    addHit(results[0]);
+                  if (freshResults?.length === 1) {
+                    addHit(freshResults[0]);
                     setQ("");
-                  } else handleCode(q.trim()).then(() => setQ(""));
+                  } else void handleCode(q.trim()).then(() => setQ(""));
                 }
                 if (e.key === "Escape") setQ("");
               }}

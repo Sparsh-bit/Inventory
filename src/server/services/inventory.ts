@@ -75,7 +75,14 @@ export async function postStockCount(ctx: Ctx, input: { locationId: string; line
   return inTransaction(async (session) => {
     const settings = await OrgSettings.findOne({ orgId: ctx.orgId }, null, { session }).lean();
     const moves = [];
+    // The same item (and batch) on several lines means it was counted in parts: add them up.
+    const merged = new Map<string, (typeof input.lines)[number]>();
     for (const l of input.lines) {
+      const k = `${l.variantId}|${l.batchId ?? ""}`;
+      const prev = merged.get(k);
+      merged.set(k, prev ? { ...prev, counted: prev.counted + l.counted, serials: [...(prev.serials ?? []), ...(l.serials ?? [])] } : l);
+    }
+    for (const l of merged.values()) {
       const { p, v } = find(l.variantId);
       const level = await StockLevel.findOne({ orgId: ctx.orgId, locationId: input.locationId, variantId: l.variantId, batchId: l.batchId }, null, { session }).lean();
       if (p.trackSerial) {

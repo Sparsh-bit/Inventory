@@ -16,7 +16,7 @@ import { audit, nextNumber } from "./system";
 type Input = z.output<typeof saleInput>;
 
 // ponytail: fixed cashier discount ceiling; make it a per-business setting if shops ask.
-const CASHIER_MAX_DISCOUNT_PCT = 10;
+export const CASHIER_MAX_DISCOUNT_PCT = 10;
 
 interface PricedLine {
   hit: VariantHit;
@@ -154,7 +154,7 @@ export async function completeSale(ctx: Ctx, input: Input) {
     }
     if (customer && balanceDue > 0) await postLedger(ctx, { partyId: customer._id, kind: "sale", delta: balanceDue, docKind: "sale", docId: saleId, number, note: "Bill on account" }, session);
     await audit(ctx, "complete", "sale", saleId, `Sale ${number}`, undefined, session);
-    return { saleId, number };
+    return { saleId, number, total: b.grandTotal, change };
   });
 }
 
@@ -194,6 +194,7 @@ export async function returnSale(ctx: Ctx, saleId: string, items: { lineIndex: n
     if (refundMethod === "credit" && !sale.customerId) throw new AppError("INVALID", "Refund to account needs a customer on the sale.");
     const settings = await OrgSettings.findOne({ orgId: ctx.orgId }, null, { session }).lean<OrgSettingsDoc>();
 
+    if (new Set(items.map((i) => i.lineIndex)).size !== items.length) throw new AppError("INVALID", "Each item can only be listed once in a return.");
     const lines = items.filter((i) => i.qty > 0).map((i) => {
       const l = sale.lines[i.lineIndex];
       if (!l) throw new AppError("INVALID", "Invalid line");
@@ -214,13 +215,20 @@ export async function returnSale(ctx: Ctx, saleId: string, items: { lineIndex: n
     const raw = sum("total");
     const grandTotal = settings?.roundOff ? Math.round(raw / 100) * 100 : raw;
     const { number } = await nextNumber(ctx, "return", session);
+    // Whatever the customer still owes on this bill is cleared first; only the rest is paid back.
+    const offDue = sale.customerId ? Math.min(grandTotal, sale.balanceDue ?? 0) : 0;
+    const payBack = grandTotal - offDue;
+    const refunds = [
+      ...(offDue > 0 || refundMethod === "credit" ? [{ method: "credit", amount: offDue + (refundMethod === "credit" ? payBack : 0) }] : []),
+      ...(refundMethod !== "credit" && payBack > 0 ? [{ method: refundMethod, amount: payBack }] : []),
+    ].filter((p) => p.amount > 0);
     const [ret] = await Sale.create(
       [{
         orgId: ctx.orgId, number, kind: "return", status: "completed", locationId: sale.locationId, customerId: sale.customerId, customer: sale.customer,
         interState: sale.interState, lines, billDiscount: 0, subtotal: lines.reduce((a, l) => a + Math.round((l.unitPrice! * l.qty) / (l.scale ?? 1)), 0),
         discountTotal: sum("discount"), taxableTotal: sum("taxable"), cgst: sum("cgst"), sgst: sum("sgst"), igst: sum("igst"), vat: sum("vat"), cess: sum("cess"),
         taxTotal: sum("cgst") + sum("sgst") + sum("igst") + sum("vat") + sum("cess"), roundOff: grandTotal - raw, grandTotal,
-        payments: [{ method: refundMethod, amount: grandTotal }], amountPaid: refundMethod === "credit" ? 0 : grandTotal, change: 0, balanceDue: 0,
+        payments: refunds.length ? refunds : [{ method: refundMethod, amount: 0 }], amountPaid: refundMethod === "credit" ? 0 : payBack, change: 0, balanceDue: 0,
         returnOf: sale._id, returnOfNumber: sale.number, cashierId: ctx.userId, cashierName: ctx.userName, notes: reason, completedAt: new Date(),
       }],
       { session },
@@ -234,12 +242,13 @@ export async function returnSale(ctx: Ctx, saleId: string, items: { lineIndex: n
     for (const l of lines.filter((x) => x.serials.length)) {
       await restoreSerials(ctx, { variantId: String(l.variantId), locationId: String(sale.locationId), serials: l.serials, saleId: String(sale._id), event: "returned by customer", ref: number }, session);
     }
-    // Credited to the account: it first clears what is still due on this bill, so bill dues match the khata.
-    const offDue = refundMethod === "credit" ? Math.min(grandTotal, sale.balanceDue ?? 0) : 0;
     if (offDue > 0) await Sale.updateOne({ orgId: ctx.orgId, _id: sale._id }, { $inc: { balanceDue: -offDue } }, { session });
-    if (refundMethod === "credit" && sale.customerId) await postLedger(ctx, { partyId: sale.customerId, kind: "return", delta: -grandTotal, docKind: "sale", docId: ret._id, number, note: `Return against ${sale.number}` }, session);
+    const credited = refundMethod === "credit" ? grandTotal : offDue;
+    if (credited > 0 && sale.customerId) {
+      await postLedger(ctx, { partyId: sale.customerId, kind: "return", delta: -credited, docKind: "sale", docId: ret._id, number, note: `Return against ${sale.number}${offDue > 0 && refundMethod !== "credit" ? " (cleared from unpaid balance)" : ""}` }, session);
+    }
     await audit(ctx, "return", "sale", String(ret._id), `Return ${number} against ${sale.number}`, { reason }, session);
-    return { saleId: String(ret._id), number };
+    return { saleId: String(ret._id), number, payBack: refundMethod === "credit" ? 0 : payBack, offDue };
   });
 }
 

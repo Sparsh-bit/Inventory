@@ -86,6 +86,8 @@ export async function receivePurchase(ctx: Ctx, poId: string, input: ReceiveLine
       if (!line) throw new AppError("INVALID", "Invalid order line");
       const product = products.find((p) => String(p._id) === String(line.productId));
       if (!product) throw new AppError("INVALID", `${line.name} no longer exists.`);
+      const left = line.qtyOrdered - line.qtyReceived;
+      if (r.qty > left) throw new AppError("INVALID", `${line.name}: only ${left / (line.scale ?? 1)} left to receive on this order. Record any extra items as a new purchase.`);
       if (r.unitCost !== undefined) line.unitCost = r.unitCost;
       let batchId: Types.ObjectId | null = null;
       if (product.trackBatch) {
@@ -124,7 +126,9 @@ export async function returnPurchase(ctx: Ctx, poId: string, input: { lineId: st
   return inTransaction(async (session) => {
     const po = await PurchaseOrder.findOne({ orgId: ctx.orgId, _id: poId }, null, { session });
     if (!po) throw new AppError("NOT_FOUND", "Purchase order not found");
-    const serialProducts = new Set((await Product.find({ orgId: ctx.orgId, _id: { $in: po.lines.map((l) => l.productId) }, trackSerial: true }, { _id: 1 }, { session }).lean()).map((p) => String(p._id)));
+    const tracked = await Product.find({ orgId: ctx.orgId, _id: { $in: po.lines.map((l) => l.productId) }, $or: [{ trackSerial: true }, { trackBatch: true }] }, { trackSerial: 1, trackBatch: 1 }, { session }).lean();
+    const serialProducts = new Set(tracked.filter((p) => p.trackSerial).map((p) => String(p._id)));
+    const batchProducts = new Set(tracked.filter((p) => p.trackBatch).map((p) => String(p._id)));
     const moves = [];
     let value = 0;
     for (const r of input.filter((x) => x.qty > 0)) {
@@ -132,6 +136,7 @@ export async function returnPurchase(ctx: Ctx, poId: string, input: { lineId: st
       if (!line) throw new AppError("INVALID", "Invalid order line");
       if (r.qty > line.qtyReceived - line.qtyReturned) throw new AppError("INVALID", `You can return at most ${(line.qtyReceived - line.qtyReturned) / (line.scale ?? 1)} of ${line.name}.`);
       let batchId: string | null = null;
+      if (batchProducts.has(String(line.productId)) && !r.batchNo) throw new AppError("INVALID", `Enter the batch number of the ${line.name} you are returning.`);
       if (r.batchNo) {
         const b = await Batch.findOne({ orgId: ctx.orgId, variantId: line.variantId, batchNo: r.batchNo }, null, { session });
         if (!b) throw new AppError("INVALID", `Batch ${r.batchNo} not found for ${line.name}.`);

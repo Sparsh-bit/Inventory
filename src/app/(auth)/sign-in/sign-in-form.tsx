@@ -32,7 +32,7 @@ export function SignInForm({ next }: { next: string }) {
       return;
     }
     if (res.data.twoFactor) {
-      router.push("/two-factor");
+      router.push(next === "/dashboard" ? "/two-factor" : `/two-factor?next=${encodeURIComponent(next)}`);
       return;
     }
     router.replace(next);

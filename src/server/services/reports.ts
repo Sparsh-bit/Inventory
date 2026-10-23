@@ -1,7 +1,7 @@
 import "server-only";
 import type { PipelineStage } from "mongoose";
 import type { Ctx } from "../context";
-import { Batch, Party, Product, PurchaseOrder, Sale, StockLevel, Types } from "../models";
+import { Batch, LedgerEntry, Party, Product, Sale, StockLevel, Types } from "../models";
 
 /** Midnight of `date` in `tz`, as a UTC instant. */
 export function startOfDay(tz: string, date = new Date()): Date {
@@ -193,10 +193,15 @@ export async function balances(ctx: Ctx, kind: "customer" | "supplier") {
   return { rows, total: rows.reduce((a, r) => a + r.balance, 0) };
 }
 
+/** Purchases in a period, from the supplier ledger: goods by the date they were received, payments by the date paid. */
 export async function purchaseTotals(ctx: Ctx, start: Date, end: Date) {
-  const [r] = await PurchaseOrder.aggregate([
-    { $match: { orgId: oid(ctx.orgId), status: { $in: ["partial", "received"] }, updatedAt: { $gte: start, $lt: end } } },
-    { $group: { _id: null, received: { $sum: "$receivedValue" }, returned: { $sum: "$returnedValue" }, paid: { $sum: "$amountPaid" }, count: { $sum: 1 } } },
+  const rows = await LedgerEntry.aggregate<{ _id: string; sum: number; docs: unknown[] }>([
+    { $match: { orgId: oid(ctx.orgId), date: { $gte: start, $lt: end }, kind: { $in: ["purchase", "purchase_return", "payment", "reversal"] } } },
+    { $lookup: { from: Party.collection.name, localField: "partyId", foreignField: "_id", as: "p", pipeline: [{ $project: { kind: 1 } }] } },
+    { $match: { "p.kind": "supplier" } },
+    { $match: { $or: [{ kind: { $in: ["purchase", "purchase_return"] } }, { docKind: "payment" }] } },
+    { $group: { _id: { $cond: [{ $eq: ["$docKind", "payment"] }, "paid", "$kind"] }, sum: { $sum: "$delta" }, docs: { $addToSet: "$docId" } } },
   ]);
-  return { received: r?.received ?? 0, returned: r?.returned ?? 0, paid: r?.paid ?? 0, count: r?.count ?? 0 };
+  const by = (k: string) => rows.find((r) => r._id === k);
+  return { received: by("purchase")?.sum ?? 0, returned: 0 - (by("purchase_return")?.sum ?? 0), paid: 0 - (by("paid")?.sum ?? 0), count: by("purchase")?.docs.length ?? 0 };
 }

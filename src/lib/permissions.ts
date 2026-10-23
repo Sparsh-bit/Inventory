@@ -43,6 +43,9 @@ const MATRIX: Record<Role, ReadonlySet<Permission>> = {
   stockkeeper: new Set<Permission>(["products:read", "products:write", "stock:read", "stock:write", "purchases:read", "purchases:write", "parties:read", "import:run"]),
 };
 
+/** Cost prices are for people who see margins or buy stock, not for cashiers. */
+export const seesCost = (role: Role) => can(role, "cost:read") || can(role, "purchases:write");
+
 export function can(role: Role, p: Permission): boolean {
   return MATRIX[role]?.has(p) ?? false;
 }

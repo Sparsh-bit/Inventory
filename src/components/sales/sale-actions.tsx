@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Ban, FileText, Printer, Undo2 } from "lucide-react";
 import { formatQty } from "@/lib/format";
 import { markSaleReviewed } from "@/server/actions/offline";
@@ -27,14 +28,14 @@ interface Line {
   serials: string[];
 }
 
-export function SaleActions({ saleId, canReturn, canVoid, hasCustomer, lines }: { saleId: string; canReturn: boolean; canVoid: boolean; hasCustomer: boolean; lines: Line[] }) {
+export function SaleActions({ saleId, canReturn, canVoid, hasCustomer, balanceDue = 0, lines }: { saleId: string; canReturn: boolean; canVoid: boolean; hasCustomer: boolean; balanceDue?: number; lines: Line[] }) {
   const org = useOrg();
   const router = useRouter();
   const [retOpen, setRetOpen] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
   const [qty, setQty] = useState<Record<number, string>>({});
   const [picked, setPicked] = useState<Record<number, string[]>>({});
-  const [method, setMethod] = useState("cash");
+  const [method, setMethod] = useState(balanceDue > 0 && hasCustomer ? "credit" : "cash");
   const [reason, setReason] = useState("");
   const ret = useAction(refundSale);
   const voi = useAction(cancelSale);
@@ -107,6 +108,7 @@ export function SaleActions({ saleId, canReturn, canVoid, hasCustomer, lines }: 
             <div className="space-y-1.5">
               <Label htmlFor="refund-method">Refund as</Label>
               <SelectField id="refund-method" value={method} onValueChange={setMethod} options={[["cash", "Cash"], ["card", "Card"], ["upi", "UPI"], ...(hasCustomer ? [["credit", "Credit to customer account"] as const] : []), ["other", "Other"]]} />
+              {balanceDue > 0 && <p className="text-xs text-muted-foreground">{org.money(balanceDue)} is still unpaid on this bill. The return clears that first; only the rest is paid back.</p>}
             </div>
             <div className="space-y-1.5">
               <Label>Refund amount</Label>
@@ -122,8 +124,10 @@ export function SaleActions({ saleId, canReturn, canVoid, hasCustomer, lines }: 
               disabled={!items.length || ret.pending}
               onClick={() =>
                 ret.run({ saleId, items, refundMethod: method as "cash", reason }, {
-                  success: "Return recorded",
                   onSuccess: (r) => {
+                    toast.success("Return recorded", {
+                      description: [r.offDue > 0 && `${org.money(r.offDue)} taken off the unpaid balance`, r.payBack > 0 && `Pay back ${org.money(r.payBack)}`].filter(Boolean).join(" · ") || undefined,
+                    });
                     setRetOpen(false);
                     void printSale(r.saleId);
                     router.push(`/sales/${r.saleId}`);

@@ -6,7 +6,7 @@ import { formatMoney } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { countryCodeFor, waLink } from "@/lib/whatsapp";
 import { getOrgSettings, requireCtx } from "@/server/context";
-import { Party } from "@/server/models";
+import { Party, Types } from "@/server/models";
 import { Pagination, SearchInput } from "@/components/app/list-controls";
 import { PageBody, PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
@@ -35,7 +35,7 @@ export default async function KhataPage({ searchParams }: PageProps<"/khata">) {
     const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
     filter.$or = [{ name: rx }, { phone: rx }];
   }
-  const sum = (k: string) => Party.aggregate<{ t: number }>([{ $match: { orgId: ctx.orgId, kind: k, active: true, balance: { $gt: 0 } } }, { $group: { _id: null, t: { $sum: "$balance" } } }]);
+  const sum = (k: string) => Party.aggregate<{ t: number }>([{ $match: { orgId: new Types.ObjectId(ctx.orgId), kind: k, active: true, balance: { $gt: 0 } } }, { $group: { _id: null, t: { $sum: "$balance" } } }]);
   const [rows, total, get, give] = await Promise.all([
     Party.find(filter, { name: 1, phone: 1, balance: 1, kind: 1 }).sort({ balance: -1, name: 1 }).skip((page - 1) * PAGE).limit(PAGE).lean(),
     Party.countDocuments(filter),

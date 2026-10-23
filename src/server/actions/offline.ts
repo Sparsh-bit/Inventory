@@ -1,13 +1,17 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { seesCost } from "@/lib/permissions";
 import { objectId } from "@/lib/schemas";
 import { deviceFromToken, markReviewed, offlineSaleInput, posSnapshot, registerDevice, syncOfflineSale, type SyncResult } from "../services/offline";
 import { withAuth } from "../with-auth";
 
 export const registerTill = withAuth("pos:sell", z.object({ name: z.string().trim().min(1).max(60) }).strict(), (ctx, { name }) => registerDevice(ctx, name));
 
-export const getPosSnapshot = withAuth("pos:sell", z.object({ locationId: objectId }).strict(), (ctx, { locationId }) => posSnapshot(ctx, locationId));
+export const getPosSnapshot = withAuth("pos:sell", z.object({ locationId: objectId }).strict(), async (ctx, { locationId }) => {
+  const snap = await posSnapshot(ctx, locationId);
+  return seesCost(ctx.role) ? snap : { ...snap, variants: snap.variants.map((v) => ({ ...v, costPrice: 0 })) };
+});
 
 export const syncOfflineSales = withAuth(
   "pos:sell",

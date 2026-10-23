@@ -34,8 +34,12 @@ export async function saveParty(ctx: Ctx, id: string | null, input: Input) {
 }
 
 export async function setPartyActive(ctx: Ctx, id: string, active: boolean) {
-  const r = await Party.updateOne({ orgId: ctx.orgId, _id: id }, { $set: { active } });
-  if (!r.matchedCount) throw new AppError("NOT_FOUND", "Not found");
+  // Archived contacts drop out of every list, so their dues would be forgotten: settle first.
+  const r = await Party.updateOne({ orgId: ctx.orgId, _id: id, ...(active ? {} : { balance: 0 }) }, { $set: { active } });
+  if (!r.matchedCount) {
+    if (await Party.exists({ orgId: ctx.orgId, _id: id })) throw new AppError("CONFLICT", "This contact still has a balance. Settle it (or record it as paid) before archiving.");
+    throw new AppError("NOT_FOUND", "Not found");
+  }
   await audit(ctx, active ? "restore" : "archive", "party", id, active ? "Restored contact" : "Archived contact");
 }
 

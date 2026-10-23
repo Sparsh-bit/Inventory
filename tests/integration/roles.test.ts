@@ -102,4 +102,15 @@ describe("kind-specific party rules", () => {
     expect(await mods.parties.addUdhaarEntry(entry(cust.data.id))).toMatchObject({ ok: false });
     expect(await mods.parties.openBills({ partyId: cust.data.id })).toMatchObject({ ok: false });
   });
+  it("a cashier can't change an existing customer's opening balance (it would erase dues)", async () => {
+    const owner = ctxFor("owner");
+    current = owner;
+    const data = { kind: "customer" as const, name: "Dues", phone: "", email: "", taxId: "", stateCode: "", address: {}, creditLimit: 0, openingBalance: 5000, notes: "" };
+    const made = (await mods.parties.upsertParty({ id: null, data })) as unknown as { data: { id: string } };
+    current = { ...owner, role: "cashier" };
+    expect(await mods.parties.upsertParty({ id: made.data.id, data: { ...data, openingBalance: 0 } })).toMatchObject({ ok: false, error: expect.stringMatching(/owner or manager/) });
+    expect((await mods.parties.upsertParty({ id: made.data.id, data: { ...data, phone: "9876543210" } })).ok).toBe(true);
+    current = { ...owner, role: "manager" };
+    expect((await mods.parties.upsertParty({ id: made.data.id, data: { ...data, openingBalance: 4000 } })).ok).toBe(true);
+  });
 });

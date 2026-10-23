@@ -87,15 +87,20 @@ export async function applyImport(ctx: Ctx, kind: ImportKind, rows: RawRow[]) {
         const codes = group.flatMap((r) => [r.sku, r.barcode].filter(Boolean));
         const existing = codes.length ? await Product.findOne({ orgId: ctx.orgId, $or: [{ "variants.sku": { $in: codes } }, { "variants.barcodes": { $in: codes } }] }) : null;
         if (existing) {
+          let matched = 0;
           for (const r of group) {
             const v = existing.variants.find((x) => (r.sku && x.sku === r.sku) || (r.barcode && x.barcodes.includes(r.barcode)));
-            if (!v) continue;
+            if (!v) {
+              failed.push({ row: r.row, message: `Not updated: "${existing.name}" already exists and has no variant with this SKU/barcode. Add new variants on the product page.` });
+              continue;
+            }
             v.salePrice = r.price;
             if (r.cost) v.costPrice = r.cost;
             if (r.mrp) v.mrp = r.mrp;
+            matched++;
           }
-          await existing.save();
-          updated += group.length;
+          if (matched) await existing.save();
+          updated += matched;
           continue;
         }
         await createProduct(ctx, {

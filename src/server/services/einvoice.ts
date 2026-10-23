@@ -109,7 +109,8 @@ export async function einvoiceForSale(ctx: Ctx, saleId: string) {
 }
 
 async function fail(ctx: Ctx, saleId: string, errors: string[]): Promise<never> {
-  await Sale.updateOne({ orgId: ctx.orgId, _id: saleId }, { $set: { "einvoice.status": "failed", "einvoice.errors": errors } });
+  // Never overwrite a generated IRN (e.g. a second click rejected by NIC as a duplicate).
+  await Sale.updateOne({ orgId: ctx.orgId, _id: saleId, "einvoice.status": { $ne: "generated" } }, { $set: { "einvoice.status": "failed", "einvoice.errors": errors } });
   throw new AppError("INVALID", errors.join(" "));
 }
 

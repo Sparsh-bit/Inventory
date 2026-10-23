@@ -5,6 +5,7 @@
 import { headers } from "next/headers";
 import { isAPIError } from "better-auth/api";
 import { z } from "zod";
+import { safePath } from "@/lib/safe-path";
 import { isRole } from "@/lib/permissions";
 import { auth } from "../auth";
 import { connectDb } from "../db";
@@ -15,11 +16,12 @@ import { toSafeError, withAuth, type ActionResult } from "../with-auth";
 const email = z.email().max(200).transform((e) => e.toLowerCase().trim());
 const password = z.string().min(1).max(128);
 const newPassword = z.string().min(10, "Use at least 10 characters.").max(128);
-const safePath = z.string().max(300).refine((p) => p.startsWith("/") && !p.startsWith("//"), "Invalid redirect");
+const safeNext = z.string().max(300).refine((p) => safePath(p) !== null, "Invalid redirect");
 
+/** The address our own proxy (Railway's edge) saw: the LAST X-Forwarded-For hop. Earlier hops are client-supplied. */
 async function clientIp() {
   const h = await headers();
-  return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "local";
+  return h.get("x-forwarded-for")?.split(",").at(-1)?.trim() || "local";
 }
 
 /** Fixed-window limiter stored in Mongo (works across server instances). */
@@ -55,7 +57,7 @@ export async function signInAction(input: { email: string; password: string }): 
 }
 
 export async function signUpAction(input: { name: string; email: string; password: string; next: string }): Promise<ActionResult<null>> {
-  const p = z.object({ name: z.string().trim().min(1, "Enter your name").max(100), email, password: newPassword, next: safePath }).safeParse(input);
+  const p = z.object({ name: z.string().trim().min(1, "Enter your name").max(100), email, password: newPassword, next: safeNext }).safeParse(input);
   if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Please check the form." };
   if (await limited("signup", 10, 3600)) return TOO_MANY;
   try {

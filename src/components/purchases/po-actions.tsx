@@ -69,6 +69,7 @@ function LineDialog({ id, mode, lines, onClose }: { id: string; mode: "receive" 
       batchNo: "",
       expiry: "",
       serials: [] as string[],
+      scanned: false, // the first scan replaces the pre-filled quantity instead of adding to it
     })),
   );
   const [activeSerialRow, setActiveSerialRow] = useState<string | null>(null);
@@ -93,7 +94,7 @@ function LineDialog({ id, mode, lines, onClose }: { id: string; mode: "receive" 
       return void toast.error(`${code} is not on this order`);
     }
     scanFeedback(true);
-    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, qty: String((Number(r.qty) || 0) + 1) } : r)));
+    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, scanned: true, qty: String(r.scanned ? (Number(r.qty) || 0) + 1 : 1) } : r)));
   });
 
   function submit() {

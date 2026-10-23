@@ -9,26 +9,29 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Spinner } from "@/components/ui/spinner";
 import { CameraScanner } from "./camera-scanner";
 
-/** "Scan with camera" button + dialog. Stays open for continuous scanning unless `single`. */
-export function CameraScanButton({ onScan, single = false, label = "Camera", variant = "outline" }: { onScan: (code: string) => void; single?: boolean; label?: string; variant?: "outline" | "default" | "secondary" }) {
+/** "Scan with camera" button + dialog. The camera closes as soon as a barcode is read. */
+export function CameraScanButton({ onScan, label = "Camera", variant = "outline" }: { onScan: (code: string) => void; label?: string; variant?: "outline" | "default" | "secondary" }) {
   const [open, setOpen] = useState(false);
+  const read = useRef(false); // one code per opening, even if the detector fires again before closing
   return (
     <>
-      <Button type="button" variant={variant} onClick={() => setOpen(true)} aria-label="Scan with camera">
+      <Button type="button" variant={variant} onClick={() => { read.current = false; setOpen(true); }} aria-label="Scan with camera">
         <Camera /> <span className="hidden sm:inline">{label}</span>
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Scan barcode</DialogTitle>
-            <DialogDescription>Hold the barcode inside the frame. {single ? "" : "Keep scanning — items are added as they're read."}</DialogDescription>
+            <DialogDescription>Hold the barcode inside the frame. The camera closes once it&apos;s read.</DialogDescription>
           </DialogHeader>
           {open && (
             <CameraScanner
               className="aspect-video w-full"
               onScan={(code) => {
+                if (read.current) return;
+                read.current = true;
+                setOpen(false);
                 onScan(code);
-                if (single) setOpen(false);
               }}
             />
           )}

@@ -1,8 +1,9 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { seesCost } from "@/lib/permissions";
 import { objectId, productInput } from "@/lib/schemas";
-import { AppError } from "../context";
+import { AppError, type Ctx } from "../context";
 import { Category, Product, TaxRate } from "../models";
 import { createProduct, findByCode, searchVariants, setProductActive, updateProduct } from "../services/products";
 import { inStockSerials } from "../services/serials";
@@ -21,13 +22,16 @@ export const archiveProduct = withAuth("products:write", z.object({ id: objectId
   return null;
 });
 
-export const searchProducts = withAuth("products:read", z.object({ q: z.string().max(80), locationId: objectId.optional() }).strict(), (ctx, { q, locationId }) =>
-  searchVariants(ctx, q, locationId, 24),
+const hideCost = <T extends { costPrice: number }>(ctx: Ctx, h: T): T => (seesCost(ctx.role) ? h : { ...h, costPrice: 0 });
+
+export const searchProducts = withAuth("products:read", z.object({ q: z.string().max(80), locationId: objectId.optional() }).strict(), async (ctx, { q, locationId }) =>
+  (await searchVariants(ctx, q, locationId, 24)).map((h) => hideCost(ctx, h)),
 );
 
-export const lookupCode = withAuth("products:read", z.object({ code: z.string().trim().min(1).max(64), locationId: objectId.optional() }).strict(), (ctx, { code, locationId }) =>
-  findByCode(ctx, code, locationId),
-);
+export const lookupCode = withAuth("products:read", z.object({ code: z.string().trim().min(1).max(64), locationId: objectId.optional() }).strict(), async (ctx, { code, locationId }) => {
+  const h = await findByCode(ctx, code, locationId);
+  return h && hideCost(ctx, h);
+});
 
 export const saveCategory = withAuth("products:write", z.object({ id: objectId.nullable(), name: z.string().trim().min(1).max(80), parentId: objectId.nullable() }).strict(), async (ctx, i) => {
   if (i.id) {

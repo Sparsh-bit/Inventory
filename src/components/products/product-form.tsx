@@ -172,7 +172,7 @@ export function ProductForm({ product, categories, taxRates, locations, defaults
     }
     const data: ProductInput = {
       name, description, brand, categoryId: categoryId === "none" ? null : categoryId, unitCode: unit.code, unitScale: unit.scale, hsn: hsn.trim(),
-      taxRateId: taxRateId === "none" ? null : taxRateId, priceIncludesTax: inclusive, trackBatch, trackSerial, warrantyMonths: Number(warranty) || 0, reorderLevel: Number(reorder) || 0, images, active: true,
+      taxRateId: taxRateId === "none" ? null : taxRateId, priceIncludesTax: inclusive, trackBatch, trackSerial, warrantyMonths: Number(warranty) || 0, reorderLevel: Number(reorder) || 0, images, active: product?.active ?? true,
       variants, openingLocationId: isEdit ? undefined : openingLocationId || undefined,
     };
     run({ id: product?.id ?? null, data }, {
@@ -432,7 +432,7 @@ export function BarcodeInput({ onScan, ...props }: React.ComponentProps<typeof I
   return (
     <div className="flex gap-2">
       <Input data-scan-field placeholder="Scan or type" className="font-mono" {...props} />
-      <CameraScanButton single label="Scan" onScan={onScan} />
+      <CameraScanButton label="Scan" onScan={onScan} />
     </div>
   );
 }

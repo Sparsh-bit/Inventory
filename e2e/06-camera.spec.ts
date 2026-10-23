@@ -17,11 +17,9 @@ test("laptop/phone camera scans a barcode into the POS cart", async ({ page }) =
   await page.goto("/pos");
   await page.getByRole("button", { name: "Scan with camera" }).click();
   await expect(page.getByRole("dialog", { name: "Scan barcode" })).toBeVisible();
-  // Keep the barcode in view for a few seconds: it must be added exactly once.
-  await expect(page.getByRole("button", { name: /Pay ₹20\.00/, includeHidden: true })).toBeAttached({ timeout: 20_000 });
-  await page.waitForTimeout(4000);
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog", { name: "Scan barcode" })).toBeHidden();
+  // Once the barcode is read the camera closes by itself and the item is added exactly once.
+  await expect(page.getByRole("dialog", { name: "Scan barcode" })).toBeHidden({ timeout: 20_000 });
+  await page.waitForTimeout(1500);
   const cart = page.getByRole("list", { name: "Cart items" });
   await expect(cart.getByText("Mineral Water 1L")).toBeVisible();
   await expect(cart.getByRole("textbox", { name: /Quantity of Mineral Water/ })).toHaveValue("1");

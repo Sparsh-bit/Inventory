@@ -13,6 +13,7 @@ export interface LedgerPost {
   docId?: Types.ObjectId | string | null;
   number?: string;
   note?: string;
+  reversalOf?: Types.ObjectId | string;
 }
 
 /** The only way a party balance changes: atomic $inc plus a ledger line with the balance after it. */
@@ -23,7 +24,7 @@ export async function postLedger(ctx: Ctx, e: LedgerPost, session?: ClientSessio
   await LedgerEntry.create(
     [{
       orgId: ctx.orgId, partyId: e.partyId, kind: e.kind, delta: e.delta, balanceAfter: party.balance, date: e.date ?? new Date(),
-      docKind: e.docKind ?? "", docId: e.docId ?? null, number: e.number ?? "", note: (e.note ?? "").slice(0, 300), userId: ctx.userId,
+      docKind: e.docKind ?? "", docId: e.docId ?? null, number: e.number ?? "", note: (e.note ?? "").slice(0, 300), userId: ctx.userId, reversalOf: e.reversalOf ?? null,
     }],
     { session },
   );
@@ -40,6 +41,7 @@ export interface StatementRow {
   note: string;
   delta: number;
   balance: number;
+  reversed: { at: Date; by: string; reason: string } | null;
 }
 
 /**
@@ -57,7 +59,10 @@ export async function partyStatement(ctx: Ctx, partyId: string, limit = 500) {
   const broughtForward = running;
   const rows: StatementRow[] = entries.map((x) => {
     running += x.delta;
-    return { id: String(x._id), date: x.date, kind: x.kind, number: x.number, docKind: x.docKind, docId: x.docId ? String(x.docId) : null, note: x.note, delta: x.delta, balance: running };
+    return {
+      id: String(x._id), date: x.date, kind: x.kind, number: x.number, docKind: x.docKind, docId: x.docId ? String(x.docId) : null, note: x.note, delta: x.delta, balance: running,
+      reversed: x.reversedAt ? { at: x.reversedAt, by: x.reversedBy ?? "", reason: x.reverseReason ?? "" } : null,
+    };
   });
   return { broughtForward, rows, balance: party.balance };
 }

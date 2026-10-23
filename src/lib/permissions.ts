@@ -27,12 +27,13 @@ export type Permission =
   | "reports:read"
   | "cost:read"
   | "audit:read"
-  | "import:run";
+  | "import:run"
+  | "ledger:reverse";
 
 const MANAGER: Permission[] = [
   "products:read", "products:write", "stock:read", "stock:write", "purchases:read", "purchases:write",
   "pos:sell", "sales:read", "sales:return", "sales:void", "price:override", "parties:read", "parties:write",
-  "reports:read", "cost:read", "audit:read", "import:run",
+  "reports:read", "cost:read", "audit:read", "import:run", "ledger:reverse",
 ];
 
 const MATRIX: Record<Role, ReadonlySet<Permission>> = {

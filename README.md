@@ -16,7 +16,7 @@ Multi-tenant inventory, billing and point-of-sale web app built with **Next.js 1
 | **Inventory** | Multiple shops/warehouses, batches & expiry with first-expiry-first-out selling, adjustments with reasons, transfers, scan-to-count stock takes, full movement history, low-stock alerts |
 | **Purchasing** | Purchase orders from your product list (add a new product right from the order, or by scanning an unknown barcode), scan-to-receive (partial deliveries), batch/expiry capture, supplier returns, supplier statement with every item and quantity, pay part or all of a chosen supplier invoice with date, method, reference and note |
 | **Customers** | Credit (on account) sales with credit limits, dues, receive payments against the bills you choose (or oldest first) with date and note, purchase history |
-| **Khata (Udhaar)** | Udhaar given / received with date and details, per-person statement with running balance (every bill, return, payment and udhaar), "you'll get / you'll give" totals, WhatsApp payment reminders |
+| **Khata (Udhaar)** | Udhaar given / received with date and details, per-person statement with running balance (every bill, return, payment and udhaar), "you'll get / you'll give" totals, WhatsApp payment reminders. Entries are never deleted: owners/managers undo a mistake with a reason, the original stays visible as reversed |
 | **WhatsApp bills** | Type any mobile number after a sale (or on any bill) and WhatsApp opens on that number with the items, total, balance due and a secure link to the full bill, which opens without logging in |
 | **Tax** | GST: CGST+SGST within your state, IGST inter-state (automatic from the customer's state), cess, inclusive/exclusive prices, round-off; VAT / sales tax; or no tax |
 | **Documents** | Gap-free numbering per financial year (`INV/26-27/00001`), credit notes for returns, same-day void |
@@ -33,6 +33,7 @@ Multi-tenant inventory, billing and point-of-sale web app built with **Next.js 1
 | Returns, voids, price override, discounts > 10 % | ✔ | ✔ | – | – |
 | Products, stock adjust/transfer/count, purchases, suppliers | ✔ | ✔ | – | ✔ |
 | Reports, cost & profit, audit log | ✔ | ✔ | – | – |
+| Undo a mistaken udhaar entry or payment (with reason) | ✔ | ✔ | – | – |
 | Business settings, tax, locations, team | ✔ | – | – | – |
 
 ## Quick start (local)

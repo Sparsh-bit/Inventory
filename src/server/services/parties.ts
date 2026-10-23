@@ -4,7 +4,7 @@ import { dayIn, zonedNoon } from "@/lib/dates";
 import { partyInput } from "@/lib/schemas";
 import type { ClientSession } from "mongoose";
 import { AppError, getOrgSettings, type Ctx } from "../context";
-import { Party, Payment, PurchaseOrder, Sale, Types } from "../models";
+import { LedgerEntry, Party, Payment, PurchaseOrder, Sale, Types } from "../models";
 import { inTransaction } from "../with-auth";
 import { postLedger } from "./ledger";
 import { audit } from "./system";
@@ -146,6 +146,49 @@ export async function addUdhaar(ctx: Ctx, input: { partyId: string; amount: numb
     }
     const balance = await postLedger(ctx, { partyId: party._id, kind: "udhaar", delta: input.amount, date, note: input.note }, session);
     await audit(ctx, "udhaar", party.kind, String(party._id), party.kind === "customer" ? "Gave udhaar" : "Took udhaar", { amount: input.amount, note: input.note }, session);
+    return { balance };
+  });
+}
+
+/**
+ * Undo a mistaken udhaar entry or payment (owner/manager). Nothing is deleted: the original line
+ * is marked reversed and an equal and opposite line is posted. Undoing a payment puts the amounts
+ * back as due on the bills it had paid.
+ */
+export async function reverseEntry(ctx: Ctx, input: { entryId: string; reason: string }) {
+  return inTransaction(async (session) => {
+    const e = await LedgerEntry.findOne({ orgId: ctx.orgId, _id: input.entryId }, null, { session }).lean();
+    if (!e) throw new AppError("NOT_FOUND", "Entry not found");
+    if (e.kind !== "udhaar" && e.kind !== "payment") throw new AppError("INVALID", "Only udhaar entries and payments can be undone. Correct a bill with a return, or a purchase with a supplier return.");
+    const mark = await LedgerEntry.updateOne(
+      { orgId: ctx.orgId, _id: e._id, reversedAt: null },
+      { $set: { reversedAt: new Date(), reversedBy: ctx.userName || ctx.userEmail, reverseReason: input.reason } },
+      { session },
+    );
+    if (!mark.matchedCount) throw new AppError("CONFLICT", "This entry has already been undone.");
+
+    if (e.kind === "payment") {
+      const pay = await Payment.findOne({ orgId: ctx.orgId, _id: e.docId }, null, { session });
+      if (!pay) throw new AppError("NOT_FOUND", "Payment not found");
+      for (const a of pay.allocations) {
+        if (a.docKind === "sale") {
+          const u = await Sale.updateOne({ orgId: ctx.orgId, _id: a.docId, status: "completed" }, { $inc: { balanceDue: a.amount ?? 0, amountPaid: -(a.amount ?? 0) } }, { session });
+          if (!u.matchedCount) throw new AppError("CONFLICT", `Bill ${a.number} was voided, so this payment can't be undone. Record any refund as a separate entry.`);
+        } else {
+          await PurchaseOrder.updateOne({ orgId: ctx.orgId, _id: a.docId }, { $inc: { amountPaid: -(a.amount ?? 0) } }, { session });
+        }
+      }
+      pay.reversedAt = new Date();
+      await pay.save({ session });
+    }
+
+    const what = e.kind === "payment" ? "payment" : "udhaar";
+    const balance = await postLedger(
+      ctx,
+      { partyId: e.partyId, kind: "reversal", delta: -e.delta, docKind: (e.docKind || undefined) as "payment" | undefined, docId: e.docId, number: e.number, note: `Undo ${what}: ${input.reason}`, reversalOf: e._id },
+      session,
+    );
+    await audit(ctx, "reverse", "ledger", String(e._id), `Undid ${what} of ${(Math.abs(e.delta) / 100).toFixed(2)}`, { reason: input.reason }, session);
     return { balance };
   });
 }

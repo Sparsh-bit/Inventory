@@ -230,6 +230,7 @@ const paymentSchema = new Schema(
     note: { type: String, default: "" },
     date: { type: Date, default: () => new Date() }, // when the money changed hands (may be back-dated)
     userId: { type: String, required: true },
+    reversedAt: { type: Date, default: null },
   },
   opts,
 );
@@ -240,7 +241,7 @@ export const Payment = model("Payment", paymentSchema);
  * Party ledger (khata): one line for every change to a customer's or supplier's balance.
  * `delta` is signed: + they owe us more (customer) / we owe them more (supplier).
  */
-export const LEDGER_KINDS = ["opening", "sale", "sale_void", "return", "purchase", "purchase_return", "payment", "udhaar", "adjustment"] as const;
+export const LEDGER_KINDS = ["opening", "sale", "sale_void", "return", "purchase", "purchase_return", "payment", "udhaar", "adjustment", "reversal"] as const;
 const ledgerSchema = new Schema(
   {
     orgId,
@@ -254,6 +255,11 @@ const ledgerSchema = new Schema(
     number: { type: String, default: "" },
     note: { type: String, default: "" },
     userId: { type: String, required: true },
+    // Udhaar and payment lines can be undone once (owner/manager); the reversal is its own line.
+    reversedAt: { type: Date, default: null },
+    reversedBy: { type: String, default: "" },
+    reverseReason: { type: String, default: "" },
+    reversalOf: { type: ObjectId, default: null },
   },
   opts,
 );

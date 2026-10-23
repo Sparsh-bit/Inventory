@@ -4,8 +4,8 @@ import { z } from "zod";
 import { can } from "@/lib/permissions";
 import { objectId, partyInput } from "@/lib/schemas";
 import { AppError, type Ctx } from "../context";
-import { Party } from "../models";
-import { addUdhaar, listOpenDocs, recordPayment, saveParty, setPartyActive } from "../services/parties";
+import { LedgerEntry, Party } from "../models";
+import { addUdhaar, listOpenDocs, recordPayment, reverseEntry, saveParty, setPartyActive } from "../services/parties";
 import { withAuth } from "../with-auth";
 
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a valid date");
@@ -72,6 +72,21 @@ export const addUdhaarEntry = withAuth(
     const kind = await partyKind(ctx, input.partyId);
     const r = await addUdhaar(ctx, input);
     revalidatePath(`/${kind === "customer" ? "customers" : "suppliers"}/${input.partyId}`);
+    revalidatePath("/khata");
+    return r;
+  },
+);
+
+/** Undo a mistaken udhaar entry or payment. Owners and managers only; a reason is required. */
+export const undoEntry = withAuth(
+  "ledger:reverse",
+  z.object({ entryId: objectId, reason: z.string().trim().min(3, "Say why this is being undone").max(200) }).strict(),
+  async (ctx, input) => {
+    const e = await LedgerEntry.findOne({ orgId: ctx.orgId, _id: input.entryId }, { partyId: 1 }).lean();
+    if (!e) throw new AppError("NOT_FOUND", "Entry not found");
+    const kind = await partyKind(ctx, String(e.partyId));
+    const r = await reverseEntry(ctx, input);
+    revalidatePath(`/${kind === "customer" ? "customers" : "suppliers"}/${e.partyId}`);
     revalidatePath("/khata");
     return r;
   },

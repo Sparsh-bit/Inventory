@@ -67,6 +67,20 @@ test("purchase with a new product, part-payment against that invoice, udhaar and
     await expect(page.getByRole("table", { name: "Statement" }).getByRole("row").filter({ hasText: "Udhaar given" })).toContainText("2 kg sugar, pays Sunday");
   });
 
+  await test.step("undo a mistaken udhaar entry with a reason; it stays visible as reversed", async () => {
+    const statement = page.getByRole("table", { name: "Statement" });
+    const entry = statement.getByRole("row").filter({ hasText: "Udhaar given" });
+    await entry.getByRole("button", { name: /Undo udhaar entry of ₹150\.00/ }).click();
+    const dialog = page.getByRole("dialog", { name: "Undo this udhaar entry?" });
+    await dialog.getByLabel("Reason").fill("Entered on the wrong customer");
+    await dialog.getByRole("button", { name: "Undo udhaar entry" }).click();
+    await expect(page.getByText("Entry undone")).toBeVisible();
+    await expect(entry).toContainText("Reversed");
+    await expect(entry).toContainText("Entered on the wrong customer");
+    await expect(statement.getByRole("row").filter({ hasText: "Correction (undo)" })).toContainText("₹150.00");
+    await expect(entry.getByRole("button", { name: /Undo/ })).toHaveCount(0);
+  });
+
   await test.step("WhatsApp the bill to a typed number; the link opens the bill without logging in", async () => {
     await page.goto("/pos");
     await page.getByRole("button", { name: /Ball Pen Blue/ }).click();

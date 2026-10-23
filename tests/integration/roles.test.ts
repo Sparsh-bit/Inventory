@@ -28,7 +28,7 @@ const ACTIONS: [string, string, Permission][] = [
   ["inventory", "saveLocation", "settings:manage"],
   ["purchases", "savePO", "purchases:write"], ["purchases", "receivePO", "purchases:write"], ["purchases", "returnPO", "purchases:write"], ["purchases", "cancelPO", "purchases:write"],
   ["parties", "upsertParty", "parties:read"], ["parties", "archiveParty", "parties:read"], ["parties", "addPayment", "parties:read"],
-  ["parties", "openBills", "parties:read"], ["parties", "addUdhaarEntry", "parties:read"], ["sales", "billShareLink", "sales:read"],
+  ["parties", "openBills", "parties:read"], ["parties", "addUdhaarEntry", "parties:read"], ["parties", "undoEntry", "ledger:reverse"], ["sales", "billShareLink", "sales:read"],
   ["offline", "registerTill", "pos:sell"], ["offline", "getPosSnapshot", "pos:sell"], ["offline", "syncOfflineSales", "pos:sell"], ["offline", "markSaleReviewed", "sales:return"],
   ["einvoice", "saveEinvoice", "settings:manage"], ["einvoice", "testEinvoice", "settings:manage"], ["einvoice", "createIrn", "sales:void"], ["einvoice", "voidIrn", "sales:void"],
   ["einvoice", "createEwb", "sales:void"], ["einvoice", "downloadGstJson", "sales:read"],

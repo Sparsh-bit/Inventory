@@ -19,6 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EditPartyButton, NewPartyButton } from "./party-form";
 import { PaymentButton } from "./payment-button";
 import { UdhaarButton } from "./udhaar-button";
+import { UndoEntryButton } from "./undo-entry";
 import { HandCoins, MessageCircle, Receipt, Wallet } from "lucide-react";
 
 const PAGE = 30;
@@ -129,6 +130,7 @@ export async function PartyDetailPage({ kind, id }: { kind: "customer" | "suppli
       ? waLink(p.phone, `Namaste ${p.name}, this is a reminder from ${ctx.orgName}. Your pending balance is ${money(p.balance)}. Please pay at your earliest convenience. Thank you!`, cc)
       : null;
   const labels = KIND_LABELS[kind];
+  const canUndo = canWrite && can(ctx.role, "ledger:reverse");
 
   return (
     <PageBody className="max-w-5xl">
@@ -191,7 +193,7 @@ export async function PartyDetailPage({ kind, id }: { kind: "customer" | "suppli
                   </TableRow>
                 )}
                 {statement.rows.map((r) => (
-                  <TableRow key={r.id}>
+                  <TableRow key={r.id} className={r.reversed ? "text-muted-foreground" : undefined}>
                     <TableCell className="whitespace-nowrap pl-6 align-top text-muted-foreground">{formatDate(r.date, s.timezone, s.locale)}</TableCell>
                     <TableCell className="min-w-48 whitespace-normal align-top">
                       <span className="font-medium">{labels[r.kind] ?? r.kind}</span>
@@ -202,9 +204,17 @@ export async function PartyDetailPage({ kind, id }: { kind: "customer" | "suppli
                           <span className="ml-1 text-muted-foreground">{r.docKind === "payment" ? `against ${r.number}` : r.number}</span>
                         ))}
                       {r.note && <span className="block text-xs text-muted-foreground">{r.note}</span>}
+                      {r.reversed ? (
+                        <span className="mt-0.5 block text-xs">
+                          <Badge variant="outline" className="mr-1">Reversed</Badge>
+                          {r.reversed.reason} · {r.reversed.by}, {formatDate(r.reversed.at, s.timezone, s.locale)}
+                        </span>
+                      ) : (
+                        canUndo && (r.kind === "udhaar" || r.kind === "payment") && <UndoEntryButton entryId={r.id} what={r.kind === "payment" ? "payment" : "udhaar entry"} amount={Math.abs(r.delta)} />
+                      )}
                     </TableCell>
-                    <TableCell className="text-right align-top tabular-nums">{r.delta > 0 ? money(r.delta) : ""}</TableCell>
-                    <TableCell className="text-right align-top tabular-nums text-success">{r.delta < 0 ? money(-r.delta) : ""}</TableCell>
+                    <TableCell className={`text-right align-top tabular-nums ${r.reversed ? "line-through" : ""}`}>{r.delta > 0 ? money(r.delta) : ""}</TableCell>
+                    <TableCell className={`text-right align-top tabular-nums ${r.reversed ? "line-through" : "text-success"}`}>{r.delta < 0 ? money(-r.delta) : ""}</TableCell>
                     <TableCell className="pr-6 text-right align-top font-medium tabular-nums">{money(r.balance)}</TableCell>
                   </TableRow>
                 ))}
@@ -272,6 +282,6 @@ export async function PartyDetailPage({ kind, id }: { kind: "customer" | "suppli
 }
 
 const KIND_LABELS: Record<"customer" | "supplier", Record<string, string>> = {
-  customer: { plus: "Udhaar / bills", minus: "Received", opening: "Opening balance", sale: "Bill on account", sale_void: "Bill voided", return: "Return credited", payment: "Payment received", udhaar: "Udhaar given", adjustment: "Adjustment" },
-  supplier: { plus: "Purchases", minus: "Paid", opening: "Opening balance", purchase: "Goods received", purchase_return: "Returned to supplier", payment: "Payment made", udhaar: "Udhaar taken", adjustment: "Adjustment" },
+  customer: { plus: "Udhaar / bills", minus: "Received", opening: "Opening balance", sale: "Bill on account", sale_void: "Bill voided", return: "Return credited", payment: "Payment received", udhaar: "Udhaar given", adjustment: "Adjustment", reversal: "Correction (undo)" },
+  supplier: { plus: "Purchases", minus: "Paid", opening: "Opening balance", purchase: "Goods received", purchase_return: "Returned to supplier", payment: "Payment made", udhaar: "Udhaar taken", adjustment: "Adjustment", reversal: "Correction (undo)" },
 };

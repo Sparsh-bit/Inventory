@@ -394,4 +394,44 @@ describe("supplier payments against chosen invoices, and the khata ledger", () =
     const bills = await svc.parties.listOpenDocs(c, cust);
     expect(bills.map((b) => b.due)).toEqual([1000]);
   });
+  it("undo: udhaar and payments are reversed once, bills get their dues back, bills themselves can't be undone", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 10);
+    const { id: cust } = await party(c, "customer", "Undo Test");
+    const { saleId } = await svc.sales.completeSale(c, { ...cashSale(loc, variantId, 2, 0), customerId: cust, payments: [{ method: "credit" as const, amount: 2000, reference: "" }] });
+    await svc.parties.addUdhaar(c, { partyId: cust, amount: 500, note: "typo", date: null });
+    await svc.parties.recordPayment(c, { partyId: cust, amount: 1500, method: "cash", reference: "", date: null, allocations: [{ docId: saleId, amount: 1500 }] });
+    const entries = await svc.models.LedgerEntry.find({ orgId: c.orgId, partyId: cust }).sort({ createdAt: 1 }).lean();
+    const [saleEntry, udhaarEntry, payEntry] = entries;
+    expect((await svc.models.Party.findOne({ orgId: c.orgId, _id: cust }).lean())!.balance).toBe(1000);
+
+    await expect(svc.parties.reverseEntry(c, { entryId: String(saleEntry._id), reason: "nope" })).rejects.toThrow(/Only udhaar entries and payments/);
+    await svc.parties.reverseEntry(c, { entryId: String(udhaarEntry._id), reason: "Entered by mistake" });
+    await expect(svc.parties.reverseEntry(c, { entryId: String(udhaarEntry._id), reason: "again" })).rejects.toThrow(/already been undone/);
+    await svc.parties.reverseEntry(c, { entryId: String(payEntry._id), reason: "Cheque bounced" });
+
+    expect((await svc.models.Party.findOne({ orgId: c.orgId, _id: cust }).lean())!.balance).toBe(2000);
+    const sale = await svc.models.Sale.findOne({ orgId: c.orgId, _id: saleId }).lean();
+    expect(sale!.balanceDue).toBe(2000);
+    expect((await svc.models.Payment.findOne({ orgId: c.orgId, partyId: cust }).lean())!.reversedAt).toBeTruthy();
+    const st = await svc.ledger.partyStatement(c, cust);
+    expect(st.rows.map((r) => [r.kind, r.delta, !!r.reversed])).toEqual([
+      ["sale", 2000, false], ["udhaar", 500, true], ["payment", -1500, true], ["reversal", -500, false], ["reversal", 1500, false],
+    ]);
+    expect(st.rows.find((r) => r.kind === "udhaar")!.reversed!.reason).toBe("Entered by mistake");
+    expect(st.rows.at(-1)!.balance).toBe(2000);
+  });
+
+  it("two people undoing the same payment at once only undo it once", async () => {
+    const c = ctx();
+    await business(c);
+    const { id: cust } = await party(c, "customer", "Race", { openingBalance: 1000 });
+    await svc.parties.recordPayment(c, { partyId: cust, amount: 400, method: "cash", reference: "", date: null });
+    const pay = await svc.models.LedgerEntry.findOne({ orgId: c.orgId, partyId: cust, kind: "payment" }).lean();
+    const results = await Promise.allSettled([1, 2].map(() => svc.parties.reverseEntry(c, { entryId: String(pay!._id), reason: "race" })));
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect((await svc.models.Party.findOne({ orgId: c.orgId, _id: cust }).lean())!.balance).toBe(1000);
+    expect(await svc.models.LedgerEntry.countDocuments({ orgId: c.orgId, partyId: cust, kind: "reversal" })).toBe(1);
+  });
 });

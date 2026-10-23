@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2 } from "lucide-react";
+import { PackagePlus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatQty } from "@/lib/format";
 import { fromMinor, toMinor } from "@/lib/money";
@@ -13,6 +13,7 @@ import { useOrg } from "@/components/app/org-context";
 import { SelectField } from "@/components/app/select-field";
 import { useAction } from "@/components/app/use-action";
 import { ProductPicker } from "@/components/products/product-picker";
+import { QuickProductDialog } from "./quick-product";
 import { CameraScanButton } from "@/components/scanner/scan-tools";
 import { scanFeedback, useScanner } from "@/components/scanner/use-scanner";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,7 @@ export function PoForm({ suppliers, locations, initial }: PoFormProps) {
   const [invoiceNo, setInvoiceNo] = useState(initial?.supplierInvoiceNo ?? "");
   const [notes, setNotes] = useState(initial?.notes ?? "");
   const [lines, setLines] = useState<Line[]>(initial?.lines ?? []);
+  const [newProduct, setNewProduct] = useState<{ code: string } | null>(null);
 
   const add = (h: VariantHit) =>
     setLines((ls) =>
@@ -64,10 +66,10 @@ export function PoForm({ suppliers, locations, initial }: PoFormProps) {
       add(r.data);
     } else {
       scanFeedback(false);
-      toast.error(`No product with code ${code}`);
+      toast.error(`No product with code ${code}`, { action: { label: "Create product", onClick: () => setNewProduct({ code }) } });
     }
   };
-  useScanner(onCode);
+  useScanner(onCode, !newProduct);
 
   const total = lines.reduce((a, l) => {
     try {
@@ -108,9 +110,18 @@ export function PoForm({ suppliers, locations, initial }: PoFormProps) {
               <ProductPicker onPick={add} placeholder="Search or scan products to order…" />
             </div>
             <CameraScanButton onScan={onCode} />
+            <Button type="button" variant="outline" onClick={() => setNewProduct({ code: "" })}>
+              <PackagePlus /> <span className="hidden sm:inline">New product</span>
+            </Button>
           </div>
+          <QuickProductDialog
+            open={!!newProduct}
+            onOpenChange={(o) => !o && setNewProduct(null)}
+            initialCode={newProduct?.code ?? ""}
+            onCreated={(l) => setLines((ls) => [...ls, { ...l, qty: "1" }])}
+          />
           {lines.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">Search, scan, or pick products above.</p>
+            <p className="py-10 text-center text-sm text-muted-foreground">Search, scan, or pick products above. Buying something new? Use <span className="font-medium">New product</span>.</p>
           ) : (
             <Table>
               <TableHeader>

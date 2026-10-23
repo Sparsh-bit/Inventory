@@ -16,7 +16,7 @@ test("add a product by scanning its barcode, then sell it: qty starts at 1 and c
   // Scanner fires while the cursor is still in the name field: the code goes to the barcode field.
   await scan(page, "8909999000017");
   await expect(page.getByLabel("Product name")).toHaveValue("E2E Biscuits 200g");
-  await expect(page.getByLabel("Barcode", { exact: true })).toHaveValue("8909999000017");
+  await expect(page.getByLabel("Barcode / product no.")).toHaveValue("8909999000017");
   await page.getByLabel("Selling price", { exact: true }).fill("30");
   await page.getByLabel("Cost price").fill("22");
   await page.getByLabel(/Opening stock/).fill("12");
@@ -60,7 +60,7 @@ test("unknown barcode offers to create a product", async ({ page }) => {
   await expect(page.getByText("No product with code 0000000999999")).toBeVisible();
   await page.getByRole("button", { name: "Create" }).click();
   await expect(page).toHaveURL(/products\/new\?barcode=0000000999999/);
-  await expect(page.getByRole("textbox", { name: "Barcode" })).toHaveValue("0000000999999");
+  await expect(page.getByRole("textbox", { name: "Barcode / product no." })).toHaveValue("0000000999999");
 });
 
 test("credit sale to a customer, then collect the payment", async ({ page }) => {

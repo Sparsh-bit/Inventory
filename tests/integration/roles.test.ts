@@ -28,6 +28,7 @@ const ACTIONS: [string, string, Permission][] = [
   ["inventory", "saveLocation", "settings:manage"],
   ["purchases", "savePO", "purchases:write"], ["purchases", "receivePO", "purchases:write"], ["purchases", "returnPO", "purchases:write"], ["purchases", "cancelPO", "purchases:write"],
   ["parties", "upsertParty", "parties:read"], ["parties", "archiveParty", "parties:read"], ["parties", "addPayment", "parties:read"],
+  ["parties", "openBills", "parties:read"], ["parties", "addUdhaarEntry", "parties:read"], ["sales", "billShareLink", "sales:read"],
   ["offline", "registerTill", "pos:sell"], ["offline", "getPosSnapshot", "pos:sell"], ["offline", "syncOfflineSales", "pos:sell"], ["offline", "markSaleReviewed", "sales:return"],
   ["einvoice", "saveEinvoice", "settings:manage"], ["einvoice", "testEinvoice", "settings:manage"], ["einvoice", "createIrn", "sales:void"], ["einvoice", "voidIrn", "sales:void"],
   ["einvoice", "createEwb", "sales:void"], ["einvoice", "downloadGstJson", "sales:read"],
@@ -82,5 +83,23 @@ describe("kind-specific party rules", () => {
     const base = { name: "Y", phone: "", email: "", taxId: "", stateCode: "", address: {}, creditLimit: 0, openingBalance: 0, notes: "" };
     expect((await mods.parties.upsertParty({ id: null, data: { ...base, kind: "supplier" } })).ok).toBe(true);
     expect(await mods.parties.upsertParty({ id: null, data: { ...base, kind: "customer" } })).toMatchObject({ ok: false, error: DENIED });
+  });
+  it("udhaar follows the same rules: cashier for customers, purchasing staff for suppliers, never another business", async () => {
+    const owner = ctxFor("owner");
+    current = owner;
+    const base = { phone: "", email: "", taxId: "", stateCode: "", address: {}, creditLimit: 0, openingBalance: 0, notes: "" };
+    const cust = (await mods.parties.upsertParty({ id: null, data: { ...base, name: "C", kind: "customer" } })) as unknown as { ok: true; data: { id: string } };
+    const sup = (await mods.parties.upsertParty({ id: null, data: { ...base, name: "S", kind: "supplier" } })) as unknown as { ok: true; data: { id: string } };
+    const entry = (partyId: string) => ({ partyId, amount: 100, note: "test", date: null });
+
+    current = { ...owner, role: "cashier" };
+    expect((await mods.parties.addUdhaarEntry(entry(cust.data.id))).ok).toBe(true);
+    expect(await mods.parties.addUdhaarEntry(entry(sup.data.id))).toMatchObject({ ok: false, error: DENIED });
+    current = { ...owner, role: "stockkeeper" };
+    expect(await mods.parties.addUdhaarEntry(entry(cust.data.id))).toMatchObject({ ok: false, error: DENIED });
+    expect((await mods.parties.addUdhaarEntry(entry(sup.data.id))).ok).toBe(true);
+    current = ctxFor("owner"); // a different business
+    expect(await mods.parties.addUdhaarEntry(entry(cust.data.id))).toMatchObject({ ok: false });
+    expect(await mods.parties.openBills({ partyId: cust.data.id })).toMatchObject({ ok: false });
   });
 });

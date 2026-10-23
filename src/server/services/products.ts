@@ -72,7 +72,7 @@ export async function createProduct(ctx: Ctx, input: Input) {
       await applyMoves(ctx, moves, session);
     }
     await audit(ctx, "create", "product", String(p._id), `Created product ${p.name}`, undefined, session);
-    return { id: String(p._id) };
+    return { id: String(p._id), variants: variants.map((v) => ({ id: String(v._id), sku: v.sku ?? "", barcode: v.barcodes?.[0] ?? "" })) };
   });
 }
 

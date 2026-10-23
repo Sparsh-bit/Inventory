@@ -1,12 +1,15 @@
 "use client";
-import { useEffect } from "react";
-import { CheckCircle2, FileText, MessageCircle, Printer } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CheckCircle2, FileText, Printer } from "lucide-react";
+import { billMessage } from "@/lib/bill-message";
+import { billShareLink } from "@/server/actions/sales";
 import { useOrg } from "@/components/app/org-context";
 import { loadProfile } from "@/components/print/printer";
 import { printLocal, printSale } from "@/components/print/use-print-sale";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/kbd";
+import { WhatsAppShare } from "@/components/sales/whatsapp-share";
 
 export interface CompletedSale {
   /** null for bills saved offline on this device (printed from `local`). */
@@ -20,8 +23,6 @@ export interface CompletedSale {
 }
 
 export function SaleComplete({ sale, onNext }: { sale: CompletedSale | null; onNext: () => void }) {
-  const org = useOrg();
-
   useEffect(() => {
     if (!sale) return;
     const p = loadProfile();
@@ -30,9 +31,26 @@ export function SaleComplete({ sale, onNext }: { sale: CompletedSale | null; onN
     else if (sale.saleId) void printSale(sale.saleId, { drawer: p.openDrawer && sale.paidCash });
   }, [sale]);
 
-  const wa = sale?.customerPhone
-    ? `https://wa.me/${sale.customerPhone.replace(/\D/g, "").replace(/^(\d{10})$/, org.currency === "INR" ? "91$1" : "$1")}?text=${encodeURIComponent(`Thank you for shopping at ${org.orgName}! Your bill ${sale.number} for ${org.money(sale.total)}.`)}`
-    : null;
+  return <SaleCompleteDialog key={sale?.number ?? "none"} sale={sale} onNext={onNext} />;
+}
+
+function SaleCompleteDialog({ sale, onNext }: { sale: CompletedSale | null; onNext: () => void }) {
+  const org = useOrg();
+  const [shared, setShared] = useState<string | null>(null);
+
+  // Online bills get the full message with a link to the bill; offline ones are built locally.
+  useEffect(() => {
+    if (!sale?.saleId) return;
+    let live = true;
+    billShareLink({ saleId: sale.saleId })
+      .then((r) => live && r.ok && setShared(r.data.text))
+      .catch(() => undefined); // offline or navigated away: the short message is used instead
+    return () => {
+      live = false;
+    };
+  }, [sale?.saleId]);
+
+  const message = (sale?.local ? billMessage(sale.local, null) : shared) ?? `Thank you for shopping at ${org.orgName}! Your bill ${sale?.number} for ${org.money(sale?.total ?? 0)}.`;
 
   return (
     <Dialog open={!!sale} onOpenChange={(o) => !o && onNext()}>
@@ -54,6 +72,7 @@ export function SaleComplete({ sale, onNext }: { sale: CompletedSale | null; onN
                 <p className="text-xl font-semibold tabular-nums">{org.money(sale.change)}</p>
               </div>
             </div>
+            <WhatsAppShare text={message} defaultPhone={sale.customerPhone} />
             <div className="grid grid-cols-2 gap-2">
               <Button variant="outline" onClick={() => (sale.local ? printLocal(sale.local) : sale.saleId && printSale(sale.saleId, { format: "thermal" }))}>
                 <Printer /> Receipt
@@ -61,13 +80,6 @@ export function SaleComplete({ sale, onNext }: { sale: CompletedSale | null; onN
               <Button variant="outline" disabled={!sale.saleId} title={sale.saleId ? undefined : "Available after the bill syncs"} onClick={() => sale.saleId && printSale(sale.saleId, { format: "a4" })}>
                 <FileText /> A4 invoice
               </Button>
-              {wa && (
-                <Button variant="outline" asChild className="col-span-2">
-                  <a href={wa} target="_blank" rel="noopener noreferrer">
-                    <MessageCircle /> Send on WhatsApp
-                  </a>
-                </Button>
-              )}
             </div>
             <Button size="lg" className="h-11 w-full" onClick={onNext} autoFocus>
               New sale <Kbd className="ml-2 bg-primary-foreground/20 text-primary-foreground">Enter</Kbd>

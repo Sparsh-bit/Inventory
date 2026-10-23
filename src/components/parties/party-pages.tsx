@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Download, Factory, Users } from "lucide-react";
-import { formatDate, pageOf, PAYMENT_LABELS } from "@/lib/format";
+import { formatDate, formatQty, pageOf } from "@/lib/format";
+import { countryCodeFor, waLink } from "@/lib/whatsapp";
 import { formatMoney } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { getOrgSettings, requireCtx } from "@/server/context";
-import { Party, Payment, PurchaseOrder, Sale } from "@/server/models";
+import { Party, PurchaseOrder, Sale } from "@/server/models";
+import { partyStatement } from "@/server/services/ledger";
 import { Pagination, SearchInput } from "@/components/app/list-controls";
 import { PageBody, PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
@@ -16,7 +18,8 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EditPartyButton, NewPartyButton } from "./party-form";
 import { PaymentButton } from "./payment-button";
-import { HandCoins, Receipt, Wallet } from "lucide-react";
+import { UdhaarButton } from "./udhaar-button";
+import { HandCoins, MessageCircle, Receipt, Wallet } from "lucide-react";
 
 const PAGE = 30;
 
@@ -110,16 +113,22 @@ export async function PartyDetailPage({ kind, id }: { kind: "customer" | "suppli
   const s = await getOrgSettings(ctx.orgId);
   const money = (m: number) => formatMoney(m, s.currency, s.locale);
   const canWrite = kind === "customer" ? can(ctx.role, "parties:write") : can(ctx.role, "purchases:write");
-  const [docs, payments, stats] = await Promise.all([
+  const [docs, statement, stats] = await Promise.all([
     kind === "customer"
       ? Sale.find({ orgId: ctx.orgId, customerId: p._id, status: { $in: ["completed", "void"] } }, { number: 1, kind: 1, status: 1, grandTotal: 1, balanceDue: 1, completedAt: 1 }).sort({ completedAt: -1 }).limit(50).lean()
-      : PurchaseOrder.find({ orgId: ctx.orgId, supplierId: p._id }, { number: 1, status: 1, receivedValue: 1, returnedValue: 1, amountPaid: 1, createdAt: 1 }).sort({ createdAt: -1 }).limit(50).lean(),
-    Payment.find({ orgId: ctx.orgId, partyId: p._id }).sort({ createdAt: -1 }).limit(30).lean(),
+      : PurchaseOrder.find({ orgId: ctx.orgId, supplierId: p._id }, { number: 1, status: 1, supplierInvoiceNo: 1, receivedValue: 1, returnedValue: 1, amountPaid: 1, createdAt: 1, lines: 1 }).sort({ createdAt: -1 }).limit(50).lean(),
+    partyStatement(ctx, String(p._id)),
     kind === "customer"
       ? Sale.aggregate<{ total: number; count: number }>([{ $match: { orgId: p.orgId, customerId: p._id, status: "completed", kind: { $ne: "return" } } }, { $group: { _id: null, total: { $sum: "$grandTotal" }, count: { $sum: 1 } } }])
       : PurchaseOrder.aggregate<{ total: number; count: number }>([{ $match: { orgId: p.orgId, supplierId: p._id } }, { $group: { _id: null, total: { $sum: "$receivedValue" }, count: { $sum: 1 } } }]),
   ]);
   const a = p.address ?? {};
+  const cc = countryCodeFor(s.currency);
+  const reminder =
+    kind === "customer" && p.phone && p.balance > 0
+      ? waLink(p.phone, `Namaste ${p.name}, this is a reminder from ${ctx.orgName}. Your pending balance is ${money(p.balance)}. Please pay at your earliest convenience. Thank you!`, cc)
+      : null;
+  const labels = KIND_LABELS[kind];
 
   return (
     <PageBody className="max-w-5xl">
@@ -134,6 +143,14 @@ export async function PartyDetailPage({ kind, id }: { kind: "customer" | "suppli
                 kind={kind}
                 party={{ id: String(p._id), kind, name: p.name, phone: p.phone, email: p.email, taxId: p.taxId, stateCode: p.stateCode, address: { line1: a.line1 ?? "", city: a.city ?? "", state: a.state ?? "", postalCode: a.postalCode ?? "" }, creditLimit: p.creditLimit, openingBalance: p.openingBalance, notes: p.notes }}
               />
+              {reminder && (
+                <Button asChild variant="outline">
+                  <a href={reminder} target="_blank" rel="noopener noreferrer">
+                    <MessageCircle /> Remind on WhatsApp
+                  </a>
+                </Button>
+              )}
+              <UdhaarButton partyId={String(p._id)} partyName={p.name} kind={kind} />
               <PaymentButton partyId={String(p._id)} kind={kind} balance={p.balance} />
             </>
           )
@@ -144,66 +161,117 @@ export async function PartyDetailPage({ kind, id }: { kind: "customer" | "suppli
         <StatCard label={kind === "customer" ? "Lifetime sales" : "Total purchased"} value={money(stats[0]?.total ?? 0)} icon={Receipt} />
         <StatCard label={kind === "customer" ? "Bills" : "Orders"} value={String(stats[0]?.count ?? 0)} icon={HandCoins} />
       </div>
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>{kind === "customer" ? "Bills" : "Purchase orders"}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {docs.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nothing yet.</p>
-            ) : (
-              <ul className="divide-y text-sm">
-                {docs.map((d) => {
-                  const isSale = "grandTotal" in d;
-                  const amount = isSale ? (d.grandTotal ?? 0) : (d as { receivedValue: number; returnedValue: number }).receivedValue - (d as { returnedValue: number }).returnedValue;
-                  const due = isSale ? (d.balanceDue ?? 0) : amount - (d as { amountPaid: number }).amountPaid;
-                  return (
-                    <li key={String(d._id)} className="flex items-center justify-between gap-2 py-2">
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Statement (khata)</CardTitle>
+        </CardHeader>
+        <CardContent className="px-0">
+          {statement.rows.length === 0 && !statement.broughtForward ? (
+            <p className="px-6 text-sm text-muted-foreground">No entries yet.</p>
+          ) : (
+            <Table aria-label="Statement">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-6">Date</TableHead>
+                  <TableHead>Details</TableHead>
+                  <TableHead className="text-right">{labels.plus}</TableHead>
+                  <TableHead className="text-right">{labels.minus}</TableHead>
+                  <TableHead className="pr-6 text-right">Balance</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {statement.broughtForward !== 0 && (
+                  <TableRow>
+                    <TableCell className="pl-6 text-muted-foreground">—</TableCell>
+                    <TableCell>Balance brought forward</TableCell>
+                    <TableCell />
+                    <TableCell />
+                    <TableCell className="pr-6 text-right tabular-nums">{money(statement.broughtForward)}</TableCell>
+                  </TableRow>
+                )}
+                {statement.rows.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="whitespace-nowrap pl-6 align-top text-muted-foreground">{formatDate(r.date, s.timezone, s.locale)}</TableCell>
+                    <TableCell className="min-w-48 whitespace-normal align-top">
+                      <span className="font-medium">{labels[r.kind] ?? r.kind}</span>
+                      {r.number &&
+                        (r.docId && r.docKind !== "payment" ? (
+                          <Link href={r.docKind === "sale" ? `/sales/${r.docId}` : `/purchases/${r.docId}`} className="ml-1 hover:underline">{r.number}</Link>
+                        ) : (
+                          <span className="ml-1 text-muted-foreground">{r.docKind === "payment" ? `against ${r.number}` : r.number}</span>
+                        ))}
+                      {r.note && <span className="block text-xs text-muted-foreground">{r.note}</span>}
+                    </TableCell>
+                    <TableCell className="text-right align-top tabular-nums">{r.delta > 0 ? money(r.delta) : ""}</TableCell>
+                    <TableCell className="text-right align-top tabular-nums text-success">{r.delta < 0 ? money(-r.delta) : ""}</TableCell>
+                    <TableCell className="pr-6 text-right align-top font-medium tabular-nums">{money(r.balance)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{kind === "customer" ? "Bills" : "Purchases"}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {docs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nothing yet.</p>
+          ) : (
+            <ul className="divide-y text-sm">
+              {docs.map((d) => {
+                const isSale = "grandTotal" in d;
+                const po = d as unknown as { receivedValue: number; returnedValue: number; amountPaid: number; supplierInvoiceNo?: string; createdAt: Date; lines: { name?: string; qtyOrdered: number; qtyReceived: number; unitCost: number; scale?: number }[] };
+                const amount = isSale ? (d.grandTotal ?? 0) : po.receivedValue - po.returnedValue;
+                const due = isSale ? (d.balanceDue ?? 0) : amount - po.amountPaid;
+                return (
+                  <li key={String(d._id)} className="py-2">
+                    <div className="flex items-center justify-between gap-2">
                       <Link href={isSale ? `/sales/${d._id}` : `/purchases/${d._id}`} className="min-w-0 hover:underline">
                         <span className="font-medium">{d.number}</span>
+                        {!isSale && po.supplierInvoiceNo && <span className="text-muted-foreground"> · Inv {po.supplierInvoiceNo}</span>}
                         <span className="block text-xs text-muted-foreground">
-                          {formatDate(isSale ? (d as { completedAt: Date }).completedAt : (d as { createdAt: Date }).createdAt, s.timezone, s.locale)}
+                          {formatDate(isSale ? (d as { completedAt: Date }).completedAt : po.createdAt, s.timezone, s.locale)}
                           {"status" in d && d.status !== "completed" && ` · ${d.status}`}
                         </span>
                       </Link>
                       <span className="text-right tabular-nums">
                         {money(amount)}
-                        {due > 0 && <Badge variant="outline" className="ml-2 border-warning text-warning-foreground dark:text-warning">Due {money(due)}</Badge>}
+                        {due > 0 ? (
+                          <Badge variant="outline" className="ml-2 border-warning text-warning-foreground dark:text-warning">Due {money(due)}</Badge>
+                        ) : (
+                          amount > 0 && <Badge variant="outline" className="ml-2">Paid</Badge>
+                        )}
                       </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Payments</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {payments.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No payments recorded.</p>
-            ) : (
-              <ul className="divide-y text-sm">
-                {payments.map((pay) => (
-                  <li key={String(pay._id)} className="flex justify-between gap-2 py-2">
-                    <span>
-                      {PAYMENT_LABELS[pay.method]} {pay.reference && <span className="text-muted-foreground">· {pay.reference}</span>}
-                      <span className="block text-xs text-muted-foreground">
-                        {formatDate(pay.createdAt, s.timezone, s.locale, true)}
-                        {pay.allocations.length > 0 && ` · ${pay.allocations.map((x) => x.number).join(", ")}`}
-                      </span>
-                    </span>
-                    <span className="font-medium tabular-nums text-success">{money(pay.amount)}</span>
+                    </div>
+                    {!isSale && po.lines.length > 0 && (
+                      <ul className="mt-1.5 space-y-0.5 rounded-md bg-muted/50 px-3 py-2 text-xs" aria-label={`Items on ${d.number}`}>
+                        {po.lines.map((l, i) => (
+                          <li key={i} className="flex justify-between gap-3">
+                            <span className="min-w-0 truncate">{l.name}</span>
+                            <span className="shrink-0 tabular-nums text-muted-foreground">
+                              {formatQty(l.qtyReceived, l.scale ?? 1)} of {formatQty(l.qtyOrdered, l.scale ?? 1)} received × {money(l.unitCost)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                );
+              })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </PageBody>
   );
 }
+
+const KIND_LABELS: Record<"customer" | "supplier", Record<string, string>> = {
+  customer: { plus: "Udhaar / bills", minus: "Received", opening: "Opening balance", sale: "Bill on account", sale_void: "Bill voided", return: "Return credited", payment: "Payment received", udhaar: "Udhaar given", adjustment: "Adjustment" },
+  supplier: { plus: "Purchases", minus: "Paid", opening: "Opening balance", purchase: "Goods received", purchase_return: "Returned to supplier", payment: "Payment made", udhaar: "Udhaar taken", adjustment: "Adjustment" },
+};

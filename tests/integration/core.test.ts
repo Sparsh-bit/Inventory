@@ -11,6 +11,7 @@ let svc: {
   onboarding: typeof import("@/server/services/onboarding");
   purchases: typeof import("@/server/services/purchases");
   parties: typeof import("@/server/services/parties");
+  ledger: typeof import("@/server/services/ledger");
   models: typeof import("@/server/models");
 };
 
@@ -52,6 +53,7 @@ beforeAll(async () => {
     onboarding: await import("@/server/services/onboarding"),
     purchases: await import("@/server/services/purchases"),
     parties: await import("@/server/services/parties"),
+    ledger: await import("@/server/services/ledger"),
     models: await import("@/server/models"),
   };
   await Promise.all(Object.values(mongoose.models).map((m) => m.init()));
@@ -277,5 +279,119 @@ describe("stock & sales invariants", () => {
     expect(sale!.lines.map((l) => [l.batchNo, l.qty])).toEqual([["EARLY", 6], ["LATE", 1]]);
     const supplier = await svc.models.Party.findOne({ orgId: c.orgId, _id: supplierId }).lean();
     expect(supplier!.balance).toBe(4000);
+  });
+});
+
+describe("supplier payments against chosen invoices, and the khata ledger", () => {
+  const party = (c: Ctx, kind: "customer" | "supplier", name: string, extra: { creditLimit?: number; openingBalance?: number } = {}) =>
+    svc.parties.saveParty(c, null, { kind, name, phone: "", email: "", taxId: "", stateCode: "", address: {}, creditLimit: extra.creditLimit ?? 0, openingBalance: extra.openingBalance ?? 0, notes: "" });
+
+  async function receivedPo(c: Ctx, loc: string, supplierId: string, variantId: string, qty: number, unitCost: number, invoice: string) {
+    const { id } = await svc.purchases.savePurchaseOrder(c, null, { supplierId, locationId: loc, expectedDate: null, supplierInvoiceNo: invoice, notes: "", lines: [{ variantId, qty, unitCost }] });
+    const po = await svc.models.PurchaseOrder.findOne({ orgId: c.orgId, _id: id }).lean();
+    await svc.purchases.receivePurchase(c, id, [{ lineId: String(po!.lines[0]._id), qty }]);
+    return id;
+  }
+  const paid = async (c: Ctx, id: string) => (await svc.models.PurchaseOrder.findOne({ orgId: c.orgId, _id: id }).lean())!.amountPaid;
+
+  it("pays part of one chosen invoice; the rest stays due on that invoice", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 0);
+    const { id: sup } = await party(c, "supplier", "Lays Distributor");
+    const older = await receivedPo(c, loc, sup, variantId, 10, 1_000_00, "OLD-1"); // ₹10,000 (older)
+    const big = await receivedPo(c, loc, sup, variantId, 3, 25_000_00, "INV-75K"); // ₹75,000
+
+    const r = await svc.parties.recordPayment(c, { partyId: sup, amount: 50_000_00, method: "bank", reference: "UTR123", note: "Part payment", date: null, allocations: [{ docId: big, amount: 50_000_00 }] });
+    expect(r.allocations).toEqual([{ number: expect.any(String), amount: 50_000_00 }]);
+    expect(await paid(c, big)).toBe(50_000_00);
+    expect(await paid(c, older)).toBe(0); // not touched even though it is older
+    expect((await svc.models.Party.findOne({ orgId: c.orgId, _id: sup }).lean())!.balance).toBe(35_000_00);
+    const pay = await svc.models.Payment.findOne({ orgId: c.orgId, partyId: sup }).lean();
+    expect(pay).toMatchObject({ reference: "UTR123", note: "Part payment", method: "bank" });
+  });
+
+  it("rejects bad allocations and leaves everything unchanged", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 0);
+    const { id: sup } = await party(c, "supplier", "A");
+    const { id: other } = await party(c, "supplier", "B");
+    const po = await receivedPo(c, loc, sup, variantId, 1, 10_000, "X");
+    const othersPo = await receivedPo(c, loc, other, variantId, 1, 10_000, "Y");
+    const base = { partyId: sup, method: "cash" as const, reference: "", date: null };
+    await expect(svc.parties.recordPayment(c, { ...base, amount: 20_000, allocations: [{ docId: po, amount: 15_000 }] })).rejects.toThrow(/only has/);
+    await expect(svc.parties.recordPayment(c, { ...base, amount: 5_000, allocations: [{ docId: po, amount: 8_000 }] })).rejects.toThrow(/more than the payment/);
+    await expect(svc.parties.recordPayment(c, { ...base, amount: 5_000, allocations: [{ docId: othersPo, amount: 5_000 }] })).rejects.toThrow(/doesn't belong/);
+    await expect(svc.parties.recordPayment(c, { ...base, amount: 5_000, allocations: [{ docId: po, amount: 2_000 }, { docId: po, amount: 2_000 }] })).rejects.toThrow(/twice/);
+    await expect(svc.parties.recordPayment(c, { ...base, amount: 5_000, date: "2999-01-01" })).rejects.toThrow(/future/);
+    expect(await paid(c, po)).toBe(0);
+    expect((await svc.models.Party.findOne({ orgId: c.orgId, _id: sup }).lean())!.balance).toBe(10_000);
+    expect(await svc.models.Payment.countDocuments({ orgId: c.orgId, partyId: sup })).toBe(0);
+  });
+
+  it("puts what is left after the chosen invoice on the oldest other invoices, then as advance", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 0);
+    const { id: sup } = await party(c, "supplier", "S");
+    const a = await receivedPo(c, loc, sup, variantId, 1, 10_000, "A");
+    const b = await receivedPo(c, loc, sup, variantId, 1, 10_000, "B");
+    const r = await svc.parties.recordPayment(c, { partyId: sup, amount: 25_000, method: "cash", reference: "", date: null, allocations: [{ docId: b, amount: 10_000 }] });
+    expect(await paid(c, b)).toBe(10_000);
+    expect(await paid(c, a)).toBe(10_000);
+    expect(r.advance).toBe(5_000);
+    expect((await svc.models.Party.findOne({ orgId: c.orgId, _id: sup }).lean())!.balance).toBe(-5_000);
+  });
+
+  it("two saves of the same opening-balance change post it once", async () => {
+    const c = ctx();
+    await business(c);
+    const { id } = await party(c, "customer", "Twice");
+    const data = { kind: "customer" as const, name: "Twice", phone: "", email: "", taxId: "", stateCode: "", address: {}, creditLimit: 0, openingBalance: 100, notes: "" };
+    await Promise.allSettled([svc.parties.saveParty(c, id, data), svc.parties.saveParty(c, id, data)]);
+    expect((await svc.models.Party.findOne({ orgId: c.orgId, _id: id }).lean())!.balance).toBe(100);
+    expect(await svc.models.LedgerEntry.countDocuments({ orgId: c.orgId, partyId: id })).toBe(1);
+  });
+
+  it("customer khata: opening balance, udhaar with note and back-date, payment, statement in date order", async () => {
+    const c = ctx();
+    await business(c);
+    const { id: cust } = await party(c, "customer", "Ramesh", { openingBalance: 1_000, creditLimit: 10_000 });
+    await svc.parties.addUdhaar(c, { partyId: cust, amount: 500, note: "2 kg sugar", date: null });
+    await svc.parties.addUdhaar(c, { partyId: cust, amount: 300, note: "Back-dated", date: "2026-01-15" });
+    await expect(svc.parties.addUdhaar(c, { partyId: cust, amount: 9_000, note: "too much", date: null })).rejects.toThrow(/credit limit/);
+    await svc.parties.recordPayment(c, { partyId: cust, amount: 700, method: "upi", reference: "", date: null });
+    // editing the opening balance moves the balance by the difference, not to a stale value
+    await svc.parties.saveParty(c, cust, { kind: "customer", name: "Ramesh", phone: "", email: "", taxId: "", stateCode: "", address: {}, creditLimit: 10_000, openingBalance: 1_500, notes: "" });
+
+    const st = await svc.ledger.partyStatement(c, cust);
+    expect(st.balance).toBe(1_000 + 500 + 300 - 700 + 500);
+    expect(st.rows.at(-1)!.balance).toBe(st.balance);
+    expect(st.broughtForward).toBe(0);
+    expect(st.rows[0]).toMatchObject({ kind: "udhaar", note: "Back-dated", delta: 300 }); // dated January, so first
+    expect(st.rows.map((r) => r.kind)).toEqual(["udhaar", "opening", "udhaar", "payment", "opening"]);
+    // running balance is consistent row to row
+    let run = st.broughtForward;
+    for (const r of st.rows) expect(r.balance).toBe((run += r.delta));
+  });
+
+  it("credit sales, returns and voids all land in the customer's ledger", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 10);
+    const { id: cust } = await party(c, "customer", "Sita");
+    const onAccount = (qty: number) => ({ ...cashSale(loc, variantId, qty, 0), customerId: cust, payments: [{ method: "credit" as const, amount: qty * 1000, reference: "" }] });
+    const { saleId } = await svc.sales.completeSale(c, onAccount(2));
+    const { saleId: second } = await svc.sales.completeSale(c, onAccount(1));
+    await svc.sales.returnSale(c, saleId, [{ lineIndex: 0, qty: 1 }], "credit", "damaged");
+    await svc.sales.voidSale(c, second, "wrong customer");
+    const st = await svc.ledger.partyStatement(c, cust);
+    expect(st.rows.map((r) => [r.kind, r.delta])).toEqual([["sale", 2000], ["sale", 1000], ["return", -1000], ["sale_void", -1000]]);
+    expect(st.balance).toBe(1000);
+    // the credit return also lowered what is due on the original bill
+    expect((await svc.models.Sale.findOne({ orgId: c.orgId, _id: saleId }).lean())!.balanceDue).toBe(1000);
+    const bills = await svc.parties.listOpenDocs(c, cust);
+    expect(bills.map((b) => b.due)).toEqual([1000]);
   });
 });

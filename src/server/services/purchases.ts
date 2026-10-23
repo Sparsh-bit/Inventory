@@ -3,6 +3,7 @@ import { AppError, type Ctx } from "../context";
 import { Batch, Location, Party, Product, PurchaseOrder, TaxRate, Types, type ProductDoc } from "../models";
 import { inTransaction } from "../with-auth";
 import { cleanSerials, moveOutSerials, receiveSerials } from "./serials";
+import { postLedger } from "./ledger";
 import { applyMoves } from "./stock";
 import { audit, nextNumber } from "./system";
 
@@ -112,7 +113,8 @@ export async function receivePurchase(ctx: Ctx, poId: string, input: ReceiveLine
     for (const p of products) if (p.isModified()) await p.save({ session });
     await applyMoves(ctx, moves, session);
     for (const j of serialJobs) await receiveSerials(ctx, { ...j, locationId: String(po.locationId), purchaseId: poId, event: "received", ref: po.number }, session);
-    await Party.updateOne({ orgId: ctx.orgId, _id: po.supplierId }, { $inc: { balance: value } }, { session });
+    const items = receiptLines.map((r) => `${po.lines.find((l) => String(l._id) === String(r.lineId))?.name ?? "Item"} × ${r.qty / (po.lines.find((l) => String(l._id) === String(r.lineId))?.scale ?? 1)}`);
+    await postLedger(ctx, { partyId: po.supplierId, kind: "purchase", delta: value, docKind: "purchase", docId: po._id, number: po.number, note: [po.supplierInvoiceNo && `Inv ${po.supplierInvoiceNo}`, items.join(", ")].filter(Boolean).join(" · ") }, session);
     await audit(ctx, "receive", "purchase", poId, `Received goods on ${po.number}`, undefined, session);
     return { status: po.status };
   });
@@ -147,7 +149,7 @@ export async function returnPurchase(ctx: Ctx, poId: string, input: { lineId: st
     po.returnedValue += value;
     await po.save({ session });
     await applyMoves(ctx, moves, session);
-    await Party.updateOne({ orgId: ctx.orgId, _id: po.supplierId }, { $inc: { balance: -value } }, { session });
+    await postLedger(ctx, { partyId: po.supplierId, kind: "purchase_return", delta: -value, docKind: "purchase", docId: po._id, number: po.number, note: "Goods returned to supplier" }, session);
     await audit(ctx, "return", "purchase", poId, `Returned goods on ${po.number}`, undefined, session);
   });
 }

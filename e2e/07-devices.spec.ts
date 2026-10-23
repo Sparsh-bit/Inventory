@@ -8,7 +8,7 @@ import { OWNER } from "./test-users";
 const PAGES = [
   "/dashboard", "/pos", "/sales", "/products", "/products/new", "/products/categories", "/products/labels",
   "/inventory", "/inventory/adjust", "/inventory/transfer", "/inventory/count", "/inventory/history", "/inventory/serials",
-  "/purchases", "/purchases/new", "/customers", "/suppliers", "/reports", "/import", "/account",
+  "/purchases", "/purchases/new", "/customers", "/khata", "/suppliers", "/reports", "/import", "/account",
   "/settings", "/settings/business", "/settings/taxes", "/settings/locations", "/settings/receipt", "/settings/devices",
   "/settings/members", "/settings/audit", "/settings/einvoice",
 ];

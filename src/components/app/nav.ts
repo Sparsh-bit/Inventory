@@ -1,5 +1,5 @@
 import {
-  BarChart3, Boxes, ClipboardList, Factory, LayoutDashboard, Package, Receipt, ScanBarcode, Settings, Truck, Upload, Users,
+  BarChart3, Boxes, ClipboardList, Factory, LayoutDashboard, NotebookPen, Package, Receipt, ScanBarcode, Settings, Truck, Upload, Users,
   type LucideIcon,
 } from "lucide-react";
 import type { Permission } from "@/lib/permissions";
@@ -21,6 +21,7 @@ export const NAV: { label: string; items: NavItem[] }[] = [
       { title: "Point of Sale", href: "/pos", icon: ScanBarcode, permission: "pos:sell", keywords: "billing checkout new sale" },
       { title: "Sales & Invoices", href: "/sales", icon: Receipt, permission: "sales:read", keywords: "bills returns" },
       { title: "Customers", href: "/customers", icon: Users, permission: "parties:read" },
+      { title: "Khata (Udhaar)", href: "/khata", icon: NotebookPen, permission: "parties:read", keywords: "udhaar credit ledger dues baki" },
     ],
   },
   {

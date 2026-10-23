@@ -9,6 +9,10 @@ import { EinvoiceConfig, Location, Sale, type SaleDoc } from "@/server/models";
 import { EinvoicePanel } from "@/components/einvoice/einvoice-panel";
 import { PageBody, PageHeader } from "@/components/app/page-header";
 import { MarkReviewedButton, SaleActions } from "@/components/sales/sale-actions";
+import { WhatsAppShare } from "@/components/sales/whatsapp-share";
+import { billMessage } from "@/lib/bill-message";
+import { billUrl } from "@/server/bill-link";
+import { getReceiptData } from "@/server/services/receipt";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +37,7 @@ export default async function SalePage({ params }: PageProps<"/sales/[id]">) {
   const isReturn = sale.kind === "return";
   const einvoiceEligible = s.taxMode === "GST" && sale.status === "completed" && !!sale.customer?.taxId;
   const einvConfig = einvoiceEligible ? await EinvoiceConfig.findOne({ orgId: ctx.orgId }, { enabled: 1 }).lean() : null;
+  const shareText = sale.status === "completed" ? billMessage(await getReceiptData(ctx, id), billUrl(ctx.orgId, id)) : null;
   const returnable = !isReturn && sale.status === "completed" && sale.lines.some((l) => l.qty - (l.returnedQty ?? 0) > 0);
 
   return (
@@ -155,6 +160,11 @@ export default async function SalePage({ params }: PageProps<"/sales/[id]">) {
                 </>
               ) : (
                 <p className="text-muted-foreground">Walk-in customer</p>
+              )}
+              {shareText && (
+                <div className="mt-4 border-t pt-4">
+                  <WhatsAppShare text={shareText} defaultPhone={sale.customer?.phone ?? ""} />
+                </div>
               )}
             </CardContent>
           </Card>

@@ -9,6 +9,7 @@ import { Batch, Location, OrgSettings, Party, Sale, type OrgSettingsDoc, type Sa
 import { inTransaction } from "../with-auth";
 import { getVariantHits, type VariantHit } from "./products";
 import { cleanSerials, restoreSerials, sellSerials } from "./serials";
+import { postLedger } from "./ledger";
 import { applyMoves, pickBatchesFefo } from "./stock";
 import { audit, nextNumber } from "./system";
 
@@ -151,7 +152,7 @@ export async function completeSale(ctx: Ctx, input: Input) {
     for (const l of lines.filter((x) => x.serials.length)) {
       await sellSerials(ctx, { variantId: l.hit.variantId, locationId: input.locationId, serials: l.serials, saleId, saleNumber: number, customerId: customer ? String(customer._id) : null, warrantyMonths: l.hit.warrantyMonths }, session);
     }
-    if (customer && balanceDue > 0) await Party.updateOne({ orgId: ctx.orgId, _id: customer._id }, { $inc: { balance: balanceDue } }, { session });
+    if (customer && balanceDue > 0) await postLedger(ctx, { partyId: customer._id, kind: "sale", delta: balanceDue, docKind: "sale", docId: saleId, number, note: "Bill on account" }, session);
     await audit(ctx, "complete", "sale", saleId, `Sale ${number}`, undefined, session);
     return { saleId, number };
   });
@@ -233,7 +234,10 @@ export async function returnSale(ctx: Ctx, saleId: string, items: { lineIndex: n
     for (const l of lines.filter((x) => x.serials.length)) {
       await restoreSerials(ctx, { variantId: String(l.variantId), locationId: String(sale.locationId), serials: l.serials, saleId: String(sale._id), event: "returned by customer", ref: number }, session);
     }
-    if (refundMethod === "credit") await Party.updateOne({ orgId: ctx.orgId, _id: sale.customerId }, { $inc: { balance: -grandTotal } }, { session });
+    // Credited to the account: it first clears what is still due on this bill, so bill dues match the khata.
+    const offDue = refundMethod === "credit" ? Math.min(grandTotal, sale.balanceDue ?? 0) : 0;
+    if (offDue > 0) await Sale.updateOne({ orgId: ctx.orgId, _id: sale._id }, { $inc: { balanceDue: -offDue } }, { session });
+    if (refundMethod === "credit" && sale.customerId) await postLedger(ctx, { partyId: sale.customerId, kind: "return", delta: -grandTotal, docKind: "sale", docId: ret._id, number, note: `Return against ${sale.number}` }, session);
     await audit(ctx, "return", "sale", String(ret._id), `Return ${number} against ${sale.number}`, { reason }, session);
     return { saleId: String(ret._id), number };
   });
@@ -256,7 +260,7 @@ export async function voidSale(ctx: Ctx, saleId: string, reason: string) {
     for (const l of sale.lines.filter((x) => x.serials?.length)) {
       await restoreSerials(ctx, { variantId: String(l.variantId), locationId: String(sale.locationId), serials: l.serials, saleId: String(sale._id), event: "sale voided", ref: sale.number ?? "" }, session);
     }
-    if (sale.customerId && (sale.balanceDue ?? 0) > 0) await Party.updateOne({ orgId: ctx.orgId, _id: sale.customerId }, { $inc: { balance: -(sale.balanceDue ?? 0) } }, { session });
+    if (sale.customerId && (sale.balanceDue ?? 0) > 0) await postLedger(ctx, { partyId: sale.customerId, kind: "sale_void", delta: -(sale.balanceDue ?? 0), docKind: "sale", docId: sale._id, number: sale.number ?? "", note: `Bill voided: ${reason}` }, session);
     await audit(ctx, "void", "sale", saleId, `Voided ${sale.number}`, { reason }, session);
   });
 }

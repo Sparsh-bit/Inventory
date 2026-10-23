@@ -214,7 +214,7 @@ export function ProductForm({ product, categories, taxRates, locations, defaults
         <Card>
           <CardHeader>
             <CardTitle>Pricing & stock</CardTitle>
-            <CardDescription>Leave SKU and barcode empty to generate them automatically. Scan the product&apos;s barcode with your scanner or tap Scan to use the camera.</CardDescription>
+            <CardDescription>Leave SKU and barcode empty to generate them automatically. Scan the product&apos;s barcode with your scanner or tap Scan to use the camera. No barcode on the product? Type its product or item number instead.</CardDescription>
           </CardHeader>
           <CardContent className="@container space-y-5">
             <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
@@ -286,7 +286,7 @@ export function ProductForm({ product, categories, taxRates, locations, defaults
                     <FormField label="SKU" error={err(`variants.${i}.sku`)} className="col-span-1">
                       <Input value={r.sku} onChange={(e) => setRow(r.key, { sku: e.target.value })} placeholder="Auto" maxLength={64} className="font-mono" />
                     </FormField>
-                    <FormField label="Barcode" error={err(`variants.${i}.barcodes.0`)} className="col-span-2 @md:col-span-1">
+                    <FormField label="Barcode / product no." error={err(`variants.${i}.barcodes.0`)} className="col-span-2 @md:col-span-1">
                       <BarcodeInput value={r.barcodes} onChange={(e) => setRow(r.key, { barcodes: e.target.value })} onScan={(code) => setRow(r.key, { barcodes: code })} />
                     </FormField>
                     {!isEdit && (
@@ -428,10 +428,10 @@ function toMinorSafe(s: string) {
 }
 
 /** Barcode box + camera button. Props (incl. FormField's id/aria) go to the input so the label stays linked. */
-function BarcodeInput({ onScan, ...props }: React.ComponentProps<typeof Input> & { onScan: (code: string) => void }) {
+export function BarcodeInput({ onScan, ...props }: React.ComponentProps<typeof Input> & { onScan: (code: string) => void }) {
   return (
     <div className="flex gap-2">
-      <Input data-scan-field placeholder="Scan or auto" className="font-mono" {...props} />
+      <Input data-scan-field placeholder="Scan or type" className="font-mono" {...props} />
       <CameraScanButton single label="Scan" onScan={onScan} />
     </div>
   );

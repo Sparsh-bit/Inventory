@@ -1,7 +1,9 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { billMessage } from "@/lib/bill-message";
 import { objectId, partyInput, saleInput } from "@/lib/schemas";
+import { billUrl } from "../bill-link";
 import { Party, Sale } from "../models";
 import { batchesFor } from "../services/inventory";
 import { saveParty } from "../services/parties";
@@ -65,6 +67,13 @@ export const cancelSale = withAuth("sales:void", z.object({ saleId: objectId, re
 });
 
 export const receiptData = withAuth("sales:read", z.object({ saleId: objectId }).strict(), (ctx, { saleId }) => getReceiptData(ctx, saleId));
+
+/** WhatsApp message + public link for a bill, and the customer's phone if there is one. */
+export const billShareLink = withAuth("sales:read", z.object({ saleId: objectId }).strict(), async (ctx, { saleId }) => {
+  const d = await getReceiptData(ctx, saleId);
+  const url = billUrl(ctx.orgId, saleId);
+  return { url, text: billMessage(d, url), phone: d.sale.customer?.phone ?? "" };
+});
 
 export const findCustomers = withAuth("parties:read", z.object({ q: z.string().max(60) }).strict(), async (ctx, { q }) => {
   const filter: Record<string, unknown> = { orgId: ctx.orgId, kind: "customer", active: true };

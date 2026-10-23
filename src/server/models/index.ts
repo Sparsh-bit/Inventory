@@ -227,12 +227,38 @@ const paymentSchema = new Schema(
     method: { type: String, enum: ["cash", "card", "upi", "bank", "other"], required: true },
     allocations: { type: [{ docKind: String, docId: ObjectId, number: String, amount: Number, _id: false }], default: [] },
     reference: { type: String, default: "" },
+    note: { type: String, default: "" },
+    date: { type: Date, default: () => new Date() }, // when the money changed hands (may be back-dated)
     userId: { type: String, required: true },
   },
   opts,
 );
 paymentSchema.index({ orgId: 1, partyId: 1, createdAt: -1 });
 export const Payment = model("Payment", paymentSchema);
+
+/**
+ * Party ledger (khata): one line for every change to a customer's or supplier's balance.
+ * `delta` is signed: + they owe us more (customer) / we owe them more (supplier).
+ */
+export const LEDGER_KINDS = ["opening", "sale", "sale_void", "return", "purchase", "purchase_return", "payment", "udhaar", "adjustment"] as const;
+const ledgerSchema = new Schema(
+  {
+    orgId,
+    partyId: { type: ObjectId, required: true },
+    kind: { type: String, enum: LEDGER_KINDS, required: true },
+    delta: { type: Number, required: true },
+    balanceAfter: { type: Number, required: true },
+    date: { type: Date, required: true },
+    docKind: { type: String, default: "" }, // sale | purchase | payment
+    docId: { type: ObjectId, default: null },
+    number: { type: String, default: "" },
+    note: { type: String, default: "" },
+    userId: { type: String, required: true },
+  },
+  opts,
+);
+ledgerSchema.index({ orgId: 1, partyId: 1, date: 1, createdAt: 1 });
+export const LedgerEntry = model("LedgerEntry", ledgerSchema);
 
 /* ---------------- purchases ---------------- */
 

@@ -9,6 +9,7 @@ import { AppError, getOrgSettings, type Ctx } from "../context";
 import { Batch, Device, Location, OrgSettings, Party, Sale, SerialNumber, type OrgSettingsDoc } from "../models";
 import { inTransaction } from "../with-auth";
 import { catalogSnapshot, getVariantHits } from "./products";
+import { postLedger } from "./ledger";
 import { applyMoves, pickBatchesFefo } from "./stock";
 import { audit } from "./system";
 
@@ -182,7 +183,7 @@ export async function syncOfflineSale(ctx: Ctx, deviceCode: string, deviceId: st
         }
       }
       if (customer && balanceDue > 0) {
-        await Party.updateOne({ orgId: ctx.orgId, _id: customer._id }, { $inc: { balance: balanceDue } }, { session });
+        await postLedger(ctx, { partyId: customer._id, kind: "sale", delta: balanceDue, date: created, docKind: "sale", docId: saleId, number: input.number, note: "Bill on account (offline)" }, session);
         if (customer.creditLimit > 0 && customer.balance + balanceDue > customer.creditLimit) issues.push({ code: "credit_limit", message: `${customer.name} is over the credit limit` });
       }
       if (issues.length) await Sale.updateOne({ orgId: ctx.orgId, _id: sale._id }, { $set: { syncIssues: issues } }, { session });

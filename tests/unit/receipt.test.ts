@@ -55,3 +55,28 @@ describe("receiptToEscPos", () => {
     expect(upiLink(data(80), 17400)).toBe("upi://pay?pa=shop%40upi&pn=Sharma+General+Store&am=174.00&cu=INR&tn=S%2F26-27%2F00001");
   });
 });
+
+describe("billMessage (WhatsApp)", () => {
+  it("lists items, total and the bill link", async () => {
+    const { billMessage } = await import("@/lib/bill-message");
+    const t = billMessage(data(80), "https://shop.test/bill/abc");
+    expect(t).toContain("*Sharma General Store*");
+    expect(t).toContain("Bill S/26-27/00001 · 22 Oct 2026, 10:15");
+    expect(t).toMatch(/• An extremely long product name .* × 1\.5 kg = ₹174\.00/);
+    expect(t).toContain("*Total: ₹174.00*");
+    expect(t).toContain("View your bill: https://shop.test/bill/abc");
+    expect(t).not.toContain("Balance due");
+    expect(t).not.toMatch(/\n\n\n/);
+  });
+  it("shows what was paid and what is still due on a part-credit bill", async () => {
+    const { billMessage } = await import("@/lib/bill-message");
+    const d = data(80);
+    d.sale.payments = [{ method: "cash", amount: 10000 }, { method: "credit", amount: 7400 }];
+    d.sale.change = 0;
+    d.sale.balanceDue = 7400;
+    const t = billMessage(d, null);
+    expect(t).toContain("Paid: ₹100.00");
+    expect(t).toContain("*Balance due: ₹74.00*");
+    expect(t).not.toContain("View your bill");
+  });
+});

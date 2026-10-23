@@ -27,11 +27,11 @@ test("offline POS: sell without internet, survive a reload, sync when back onlin
   // Reload with no internet: the service worker serves the POS and the queued bill survives.
   await page.reload();
   await expect(page.getByRole("status").filter({ hasText: "1 to sync" })).toBeVisible();
-  // Only the browser's own "no network" messages are expected while offline; anything else still fails the test.
+  await context.setOffline(false);
+  // Only the browser's own "no network" messages are expected for the offline period (the POS keeps
+  // retrying in the background); anything else still fails the test.
   const expected = /ERR_INTERNET_DISCONNECTED|Failed to fetch|NetworkError|Failed to load resource/;
   consoleErrors.splice(0, consoleErrors.length, ...consoleErrors.filter((e) => !expected.test(e)));
-
-  await context.setOffline(false);
   await expect(page.getByText("1 offline bill synced")).toBeVisible({ timeout: 30_000 });
   await page.goto("/sales?type=all");
   await expect(page.getByRole("link", { name: number })).toBeVisible();

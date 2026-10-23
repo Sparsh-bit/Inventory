@@ -92,7 +92,12 @@ export interface PaymentInput {
 /** Customer pays us (direction in) or we pay a supplier (out). */
 export async function recordPayment(ctx: Ctx, input: PaymentInput) {
   const date = await entryDate(ctx, input.date);
-  return inTransaction(async (session) => {
+  return inTransaction((session) => payIn(ctx, input, date, session));
+}
+
+/** recordPayment inside an existing transaction (e.g. a purchase bill paid as it is entered). */
+export async function payIn(ctx: Ctx, input: PaymentInput, date: Date, session: ClientSession) {
+  {
     const party = await Party.findOne({ orgId: ctx.orgId, _id: input.partyId }, null, { session });
     if (!party) throw new AppError("NOT_FOUND", "Not found");
     const direction = party.kind === "customer" ? "in" : "out";
@@ -131,7 +136,7 @@ export async function recordPayment(ctx: Ctx, input: PaymentInput) {
     await postLedger(ctx, { partyId: party._id, kind: "payment", delta: -input.amount, date, docKind: "payment", docId: pay._id, number: against, note: [METHOD_LABEL[input.method], input.reference, input.note].filter(Boolean).join(" · ") + (left > 0 ? " · advance" : "") }, session);
     await audit(ctx, "payment", party.kind, String(party._id), `${direction === "in" ? "Received" : "Paid"} payment`, { amount: input.amount, allocations: allocations.map((a) => ({ number: a.number, amount: a.amount })) }, session);
     return { id: String(pay._id), allocations: allocations.map((a) => ({ number: a.number, amount: a.amount })), advance: left };
-  });
+  }
 }
 
 const METHOD_LABEL = { cash: "Cash", card: "Card", upi: "UPI", bank: "Bank transfer", other: "Other" } as const;

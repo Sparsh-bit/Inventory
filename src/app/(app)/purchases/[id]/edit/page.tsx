@@ -27,7 +27,7 @@ export default async function EditPurchasePage({ params }: PageProps<"/purchases
         initial={{
           id, supplierId: String(po.supplierId), locationId: String(po.locationId), expectedDate: po.expectedDate ? po.expectedDate.toISOString().slice(0, 10) : null,
           supplierInvoiceNo: po.supplierInvoiceNo, notes: po.notes,
-          lines: po.lines.map((l) => ({ variantId: String(l.variantId), name: l.name ?? "", sku: l.sku ?? "", unit: unit(l.productId), scale: l.scale ?? 1, qty: formatQty(l.qtyOrdered, l.scale ?? 1), cost: fromMinor(l.unitCost) })),
+          lines: po.lines.map((l) => ({ variantId: String(l.variantId), name: l.name ?? "", sku: l.sku ?? "", unit: unit(l.productId), scale: l.scale ?? 1, qty: formatQty(l.qtyOrdered, l.scale ?? 1), cost: fromMinor(l.unitCost), rateBp: l.rateBp ?? 0 })),
         }}
       />
     </PageBody>

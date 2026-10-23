@@ -4,6 +4,7 @@ import { Download, Factory, Users } from "lucide-react";
 import { formatDate, formatQty, pageOf } from "@/lib/format";
 import { countryCodeFor, waLink } from "@/lib/whatsapp";
 import { formatMoney } from "@/lib/money";
+import { purchaseLineValue } from "@/lib/purchase";
 import { can } from "@/lib/permissions";
 import { getOrgSettings, requireCtx } from "@/server/context";
 import { Party, PurchaseOrder, Sale } from "@/server/models";
@@ -20,7 +21,7 @@ import { EditPartyButton, NewPartyButton } from "./party-form";
 import { PaymentButton } from "./payment-button";
 import { UdhaarButton } from "./udhaar-button";
 import { UndoEntryButton } from "./undo-entry";
-import { HandCoins, MessageCircle, Receipt, Wallet } from "lucide-react";
+import { HandCoins, MessageCircle, Paperclip, Receipt, ReceiptText, Wallet } from "lucide-react";
 
 const PAGE = 30;
 
@@ -117,11 +118,11 @@ export async function PartyDetailPage({ kind, id }: { kind: "customer" | "suppli
   const [docs, statement, stats] = await Promise.all([
     kind === "customer"
       ? Sale.find({ orgId: ctx.orgId, customerId: p._id, status: { $in: ["completed", "void"] } }, { number: 1, kind: 1, status: 1, grandTotal: 1, balanceDue: 1, completedAt: 1 }).sort({ completedAt: -1 }).limit(50).lean()
-      : PurchaseOrder.find({ orgId: ctx.orgId, supplierId: p._id }, { number: 1, status: 1, supplierInvoiceNo: 1, receivedValue: 1, returnedValue: 1, amountPaid: 1, createdAt: 1, lines: 1 }).sort({ createdAt: -1 }).limit(50).lean(),
+      : PurchaseOrder.find({ orgId: ctx.orgId, supplierId: p._id }, { number: 1, status: 1, supplierInvoiceNo: 1, receivedValue: 1, returnedValue: 1, amountPaid: 1, createdAt: 1, billDate: 1, lines: 1, attachments: 1 }).sort({ createdAt: -1 }).limit(50).lean(),
     partyStatement(ctx, String(p._id)),
     kind === "customer"
       ? Sale.aggregate<{ total: number; count: number }>([{ $match: { orgId: p.orgId, customerId: p._id, status: "completed", kind: { $ne: "return" } } }, { $group: { _id: null, total: { $sum: "$grandTotal" }, count: { $sum: 1 } } }])
-      : PurchaseOrder.aggregate<{ total: number; count: number }>([{ $match: { orgId: p.orgId, supplierId: p._id } }, { $group: { _id: null, total: { $sum: "$receivedValue" }, count: { $sum: 1 } } }]),
+      : PurchaseOrder.aggregate<{ total: number; count: number; paid?: number }>([{ $match: { orgId: p.orgId, supplierId: p._id } }, { $group: { _id: null, total: { $sum: { $subtract: ["$receivedValue", "$returnedValue"] } }, paid: { $sum: "$amountPaid" }, count: { $sum: 1 } } }]),
   ]);
   const a = p.address ?? {};
   const cc = countryCodeFor(s.currency);
@@ -152,6 +153,11 @@ export async function PartyDetailPage({ kind, id }: { kind: "customer" | "suppli
                   </a>
                 </Button>
               )}
+              {kind === "supplier" && (
+                <Button asChild variant="outline">
+                  <Link href={`/purchases/bill?supplier=${p._id}`}><ReceiptText /> Add purchase bill</Link>
+                </Button>
+              )}
               <UdhaarButton partyId={String(p._id)} partyName={p.name} kind={kind} />
               <PaymentButton partyId={String(p._id)} kind={kind} balance={p.balance} />
             </>
@@ -161,7 +167,11 @@ export async function PartyDetailPage({ kind, id }: { kind: "customer" | "suppli
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <StatCard label={kind === "customer" ? "Outstanding" : "Payable"} value={money(p.balance)} icon={Wallet} tone={p.balance > 0 ? "warning" : "default"} hint={kind === "customer" && p.creditLimit ? `Limit ${money(p.creditLimit)}` : undefined} />
         <StatCard label={kind === "customer" ? "Lifetime sales" : "Total purchased"} value={money(stats[0]?.total ?? 0)} icon={Receipt} />
-        <StatCard label={kind === "customer" ? "Bills" : "Orders"} value={String(stats[0]?.count ?? 0)} icon={HandCoins} />
+        {kind === "customer" ? (
+          <StatCard label="Bills" value={String(stats[0]?.count ?? 0)} icon={HandCoins} />
+        ) : (
+          <StatCard label="Total paid" value={money((stats[0] as { paid?: number } | undefined)?.paid ?? 0)} icon={HandCoins} hint={`${stats[0]?.count ?? 0} purchases`} />
+        )}
       </div>
 
       <Card className="mb-6">
@@ -235,26 +245,43 @@ export async function PartyDetailPage({ kind, id }: { kind: "customer" | "suppli
             <ul className="divide-y text-sm">
               {docs.map((d) => {
                 const isSale = "grandTotal" in d;
-                const po = d as unknown as { receivedValue: number; returnedValue: number; amountPaid: number; supplierInvoiceNo?: string; createdAt: Date; lines: { name?: string; qtyOrdered: number; qtyReceived: number; unitCost: number; scale?: number }[] };
+                const po = d as unknown as {
+                  status: string; receivedValue: number; returnedValue: number; amountPaid: number; supplierInvoiceNo?: string; createdAt: Date; billDate?: Date | null;
+                  lines: { name?: string; qtyOrdered: number; qtyReceived: number; unitCost: number; scale?: number; rateBp?: number }[];
+                  attachments?: { url?: string; name?: string; type?: string }[];
+                };
+                const notReceived = !isSale && po.receivedValue === 0;
+                const ordered = isSale ? 0 : po.lines.reduce((t, l) => t + purchaseLineValue(l.qtyOrdered, l.unitCost, l.scale ?? 1, l.rateBp ?? 0), 0);
                 const amount = isSale ? (d.grandTotal ?? 0) : po.receivedValue - po.returnedValue;
+                const paid = isSale ? amount - (d.balanceDue ?? 0) : po.amountPaid;
                 const due = isSale ? (d.balanceDue ?? 0) : amount - po.amountPaid;
                 return (
-                  <li key={String(d._id)} className="py-2">
-                    <div className="flex items-center justify-between gap-2">
+                  <li key={String(d._id)} className="py-2.5">
+                    <div className="flex items-start justify-between gap-2">
                       <Link href={isSale ? `/sales/${d._id}` : `/purchases/${d._id}`} className="min-w-0 hover:underline">
                         <span className="font-medium">{d.number}</span>
-                        {!isSale && po.supplierInvoiceNo && <span className="text-muted-foreground"> · Inv {po.supplierInvoiceNo}</span>}
+                        {!isSale && po.supplierInvoiceNo && <span className="text-muted-foreground"> · Bill {po.supplierInvoiceNo}</span>}
                         <span className="block text-xs text-muted-foreground">
-                          {formatDate(isSale ? (d as { completedAt: Date }).completedAt : po.createdAt, s.timezone, s.locale)}
-                          {"status" in d && d.status !== "completed" && ` · ${d.status}`}
+                          {formatDate(isSale ? (d as { completedAt: Date }).completedAt : (po.billDate ?? po.createdAt), s.timezone, s.locale)}
+                          {"status" in d && d.status !== "completed" && d.status !== "received" && ` · ${d.status}`}
                         </span>
                       </Link>
-                      <span className="text-right tabular-nums">
-                        {money(amount)}
-                        {due > 0 ? (
-                          <Badge variant="outline" className="ml-2 border-warning text-warning-foreground dark:text-warning">Due {money(due)}</Badge>
+                      <span className="shrink-0 text-right tabular-nums">
+                        {notReceived ? (
+                          <>
+                            {money(ordered)}
+                            <span className="block text-xs text-muted-foreground">{po.status === "cancelled" ? "cancelled" : "ordered, not received yet"}</span>
+                          </>
                         ) : (
-                          amount > 0 && <Badge variant="outline" className="ml-2">Paid</Badge>
+                          <>
+                            <span className="font-medium">{money(amount)}</span>
+                            {due > 0 ? (
+                              <Badge variant="outline" className="ml-2 border-warning text-warning-foreground dark:text-warning">Due {money(due)}</Badge>
+                            ) : (
+                              amount > 0 && <Badge variant="outline" className="ml-2">Paid</Badge>
+                            )}
+                            <span className="block text-xs text-muted-foreground">Bill {money(amount)} · Paid {money(paid)} · Due {money(Math.max(0, due))}</span>
+                          </>
                         )}
                       </span>
                     </div>
@@ -269,6 +296,15 @@ export async function PartyDetailPage({ kind, id }: { kind: "customer" | "suppli
                           </li>
                         ))}
                       </ul>
+                    )}
+                    {!isSale && (po.attachments?.length ?? 0) > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                        {po.attachments!.map((f) => (
+                          <a key={f.url} href={f.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                            <Paperclip className="size-3" /> {f.name}
+                          </a>
+                        ))}
+                      </div>
                     )}
                   </li>
                 );

@@ -294,7 +294,9 @@ const purchaseOrderSchema = new Schema(
     status: { type: String, enum: ["draft", "ordered", "partial", "received", "cancelled"], default: "ordered" },
     expectedDate: { type: Date, default: null },
     supplierInvoiceNo: { type: String, default: "" },
+    billDate: { type: Date, default: null }, // date on the supplier's bill (purchase bills entered in one step)
     notes: { type: String, default: "" },
+    attachments: { type: [{ url: String, name: String, type: { type: String }, size: Number, at: Date, userId: String, _id: false }], default: [] },
     lines: [poLineSchema],
     receivedValue: { type: Number, default: 0 }, // incl. tax, owed to supplier
     returnedValue: { type: Number, default: 0 },

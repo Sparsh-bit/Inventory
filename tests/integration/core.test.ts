@@ -522,4 +522,44 @@ describe("regression tests for the bug sweep", () => {
     const old = await svc.reports.purchaseTotals(c, new Date("2020-01-01"), new Date("2020-02-01"));
     expect(old.received).toBe(0);
   });
+  it("purchase bill in one step: stock in, bill on the khata, paid in full / part / not at all", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 0);
+    const { id: sup } = await party(c, "supplier", "Bill Co");
+    const bill = (paid: { amount: number | "full" } | null, invoice: string) =>
+      svc.purchases.createPurchaseBill(c, {
+        supplierId: sup, locationId: loc, expectedDate: null, supplierInvoiceNo: invoice, notes: "", billDate: null,
+        lines: [{ variantId, qty: 10, unitCost: 750_00 }], paid: paid && { ...paid, method: "upi", reference: "UTR1" },
+        attachments: [{ url: "/api/docs/0123456789abcdef0123456789abcdef.pdf", name: "bill.pdf", type: "pdf", size: 1234 }],
+      });
+    const full = await bill({ amount: "full" }, "F-1"); // ₹7,500
+    const part = await bill({ amount: 5_000_00 }, "P-1"); // ₹5,000 of ₹7,500
+    await bill(null, "N-1");
+    await expect(bill({ amount: 9_000_00 }, "X-1")).rejects.toThrow(/can't pay more/);
+
+    const po = async (id: string) => (await svc.models.PurchaseOrder.findOne({ orgId: c.orgId, _id: id }).lean())!;
+    expect(await po(full.id)).toMatchObject({ status: "received", receivedValue: 7_500_00, amountPaid: 7_500_00, supplierInvoiceNo: "F-1" });
+    expect((await po(full.id)).attachments[0]).toMatchObject({ name: "bill.pdf", type: "pdf" });
+    expect(await po(part.id)).toMatchObject({ amountPaid: 5_000_00 });
+    expect((await svc.models.StockLevel.findOne({ orgId: c.orgId, variantId }).lean())!.qty).toBe(30); // the rejected bill added nothing
+    expect(await svc.models.PurchaseOrder.countDocuments({ orgId: c.orgId, supplierInvoiceNo: "X-1" })).toBe(0);
+    expect((await svc.models.Party.findOne({ orgId: c.orgId, _id: sup }).lean())!.balance).toBe(2_500_00 + 7_500_00);
+  });
+
+  it("purchase bill with a batch item needs the batch number, and records its expiry", async () => {
+    const c = ctx();
+    const loc = await business(c);
+    const { variantId } = await product(c, 0, { trackBatch: true });
+    const { id: sup } = await party(c, "supplier", "Pharma");
+    const input = { supplierId: sup, locationId: loc, expectedDate: null, supplierInvoiceNo: "", notes: "", billDate: "2026-01-10", paid: null, attachments: [] };
+    await expect(svc.purchases.createPurchaseBill(c, { ...input, lines: [{ variantId, qty: 5, unitCost: 100 }] })).rejects.toThrow(/batch number/);
+    expect(await svc.models.PurchaseOrder.countDocuments({ orgId: c.orgId })).toBe(0);
+    await svc.purchases.createPurchaseBill(c, { ...input, lines: [{ variantId, qty: 5, unitCost: 100, batchNo: "B7", expiry: "2027-06-30" }] });
+    const batch = await svc.models.Batch.findOne({ orgId: c.orgId, variantId }).lean();
+    expect(batch!.batchNo).toBe("B7");
+    // the ledger line carries the date on the supplier's bill
+    const entry = await svc.models.LedgerEntry.findOne({ orgId: c.orgId, partyId: sup, kind: "purchase" }).lean();
+    expect(entry!.date.toISOString().slice(0, 10)).toBe("2026-01-10");
+  });
 });

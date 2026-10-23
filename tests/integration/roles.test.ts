@@ -27,6 +27,7 @@ const ACTIONS: [string, string, Permission][] = [
   ["inventory", "adjust", "stock:write"], ["inventory", "transfer", "stock:write"], ["inventory", "count", "stock:write"], ["inventory", "variantBatches", "stock:read"],
   ["inventory", "saveLocation", "settings:manage"],
   ["purchases", "savePO", "purchases:write"], ["purchases", "receivePO", "purchases:write"], ["purchases", "returnPO", "purchases:write"], ["purchases", "cancelPO", "purchases:write"],
+  ["purchases", "savePurchaseBill", "purchases:write"], ["purchases", "attachFiles", "purchases:write"], ["purchases", "detachFile", "purchases:write"],
   ["parties", "upsertParty", "parties:read"], ["parties", "archiveParty", "parties:read"], ["parties", "addPayment", "parties:read"],
   ["parties", "openBills", "parties:read"], ["parties", "addUdhaarEntry", "parties:read"], ["parties", "undoEntry", "ledger:reverse"], ["sales", "billShareLink", "sales:read"],
   ["offline", "registerTill", "pos:sell"], ["offline", "getPosSnapshot", "pos:sell"], ["offline", "syncOfflineSales", "pos:sell"], ["offline", "markSaleReviewed", "sales:return"],

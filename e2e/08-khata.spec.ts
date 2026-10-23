@@ -39,7 +39,7 @@ test("purchase with a new product, part-payment against that invoice, udhaar and
     await dialog.getByLabel("Amount", { exact: true }).fill("200");
     await dialog.getByRole("button", { name: "Choose purchases" }).click();
     const bills = dialog.getByRole("list", { name: "Unpaid purchases" });
-    const row = bills.getByRole("listitem").filter({ hasText: "Inv ACME-7501" });
+    const row = bills.getByRole("listitem").filter({ hasText: "Bill ACME-7501" });
     await row.getByRole("checkbox").check();
     await expect(row.getByLabel(/Amount for PO\//)).toHaveValue("200.00");
     await dialog.getByLabel("Reference (optional)").fill("UTR998877");
@@ -48,8 +48,43 @@ test("purchase with a new product, part-payment against that invoice, udhaar and
     const statement = page.getByRole("table", { name: "Statement" });
     await expect(statement.getByRole("row").filter({ hasText: "Payment made" })).toContainText("UTR998877");
     // The chosen invoice now shows ₹100 due; the older Acme purchase is untouched.
-    const ours = page.getByRole("listitem").filter({ hasText: "Inv ACME-7501" }).first();
+    const ours = page.getByRole("listitem").filter({ hasText: "Bill ACME-7501" }).first();
     await expect(ours).toContainText("Due ₹100.00");
+  });
+
+  await test.step("purchase bill in one step from the supplier page, part paid, with the bill as a PDF", async () => {
+    await page.goto("/suppliers");
+    await page.getByRole("link", { name: "Acme Distributors" }).click();
+    await page.getByRole("link", { name: "Add purchase bill" }).click();
+    await expect(page.getByRole("heading", { name: "Add purchase bill" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Supplier" })).toContainText("Acme Distributors");
+    await page.getByPlaceholder("Search or scan the items on the bill…").click();
+    await page.getByPlaceholder("Search or scan the items on the bill…").pressSequentially("Ball Pen");
+    await page.getByRole("option", { name: /Ball Pen Blue/ }).click();
+    await page.getByLabel("Quantity of Ball Pen Blue").fill("5");
+    await page.getByLabel("Unit cost of Ball Pen Blue").fill("6");
+    await page.getByLabel("Supplier bill no.").fill("PB-3301");
+    await page.getByRole("radio", { name: "Part paid" }).click();
+    await page.getByLabel("Amount paid now").fill("20");
+    await page.getByLabel("Choose bill files").setInputFiles({ name: "acme-bill.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF") });
+    await expect(page.getByRole("list", { name: "Attached files" })).toContainText("acme-bill.pdf");
+    await page.getByRole("button", { name: "Save purchase bill" }).click();
+    await expect(page.getByText(/Purchase bill PO\/.* saved/)).toBeVisible();
+    await expect(page.getByRole("list", { name: "Attached files" })).toContainText("acme-bill.pdf");
+    const fileUrl = (await page.getByRole("link", { name: "acme-bill.pdf" }).getAttribute("href"))!;
+    const res = await page.request.get(fileUrl);
+    expect(res.status()).toBe(200);
+    expect(res.headers()["content-type"]).toBe("application/pdf");
+    const guest = await browser.newContext();
+    expect((await guest.request.get(new URL(fileUrl, page.url()).toString())).status()).toBe(401);
+    await guest.close();
+
+    await page.goto("/suppliers");
+    await page.getByRole("link", { name: "Acme Distributors" }).click();
+    const bill = page.getByRole("listitem").filter({ hasText: "Bill PB-3301" }).first();
+    await expect(bill).toContainText("Paid ₹20.00");
+    await expect(bill).toContainText("5 of 5 received");
+    await expect(bill.getByRole("link", { name: "acme-bill.pdf" })).toBeVisible();
   });
 
   await test.step("khata: give udhaar to a customer with a note", async () => {

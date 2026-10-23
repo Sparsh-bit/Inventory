@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, Truck } from "lucide-react";
+import { Plus, ReceiptText, Truck } from "lucide-react";
 import { formatDate, pageOf } from "@/lib/format";
 import { formatMoney } from "@/lib/money";
 import { can } from "@/lib/permissions";
@@ -39,9 +39,14 @@ export default async function PurchasesPage({ searchParams }: PageProps<"/purcha
         title="Purchases"
         description="Order stock from suppliers and receive it into your locations."
         actions={canWrite && (
-          <Button asChild>
-            <Link href="/purchases/new"><Plus /> New purchase order</Link>
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link href="/purchases/new"><Plus /> New purchase order</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/purchases/bill"><ReceiptText /> Add purchase bill</Link>
+            </Button>
+          </>
         )}
       />
       <div className="mb-4 flex flex-col gap-2 sm:flex-row">
@@ -56,7 +61,7 @@ export default async function PurchasesPage({ searchParams }: PageProps<"/purcha
               <EmptyTitle>No purchase orders</EmptyTitle>
               <EmptyDescription>Create a purchase order, then receive the goods when they arrive.</EmptyDescription>
             </EmptyHeader>
-            {canWrite && <EmptyContent><Button asChild><Link href="/purchases/new">New purchase order</Link></Button></EmptyContent>}
+            {canWrite && <EmptyContent><Button asChild><Link href="/purchases/bill">Add purchase bill</Link></Button></EmptyContent>}
           </Empty>
         </Card>
       ) : (

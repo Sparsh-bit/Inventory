@@ -1,9 +1,12 @@
 import "server-only";
+import type { ClientSession } from "mongoose";
+import { MAX_ATTACHMENTS, purchaseLineValue } from "@/lib/purchase";
 import { AppError, type Ctx } from "../context";
 import { Batch, Location, Party, Product, PurchaseOrder, TaxRate, Types, type ProductDoc } from "../models";
 import { inTransaction } from "../with-auth";
 import { cleanSerials, moveOutSerials, receiveSerials } from "./serials";
 import { postLedger } from "./ledger";
+import { entryDate, payIn } from "./parties";
 import { applyMoves } from "./stock";
 import { audit, nextNumber } from "./system";
 
@@ -16,10 +19,7 @@ export interface PoInput {
   lines: { variantId: string; qty: number; unitCost: number }[];
 }
 
-const lineValue = (qty: number, unitCost: number, scale: number, rateBp: number) => {
-  const base = Math.round((unitCost * qty) / scale);
-  return base + Math.round((base * rateBp) / 10000);
-};
+const lineValue = purchaseLineValue;
 
 async function buildLines(ctx: Ctx, lines: PoInput["lines"]) {
   const products = await Product.find({ orgId: ctx.orgId, "variants._id": { $in: lines.map((l) => l.variantId) } }).lean<ProductDoc[]>();
@@ -72,7 +72,11 @@ export interface ReceiveLine {
 }
 
 export async function receivePurchase(ctx: Ctx, poId: string, input: ReceiveLine[]) {
-  return inTransaction(async (session) => {
+  return inTransaction((session) => receiveIn(ctx, poId, input, session));
+}
+
+async function receiveIn(ctx: Ctx, poId: string, input: ReceiveLine[], session: ClientSession) {
+  {
     const po = await PurchaseOrder.findOne({ orgId: ctx.orgId, _id: poId }, null, { session });
     if (!po) throw new AppError("NOT_FOUND", "Purchase order not found");
     if (!["ordered", "partial", "draft"].includes(po.status)) throw new AppError("CONFLICT", "This order is already closed.");
@@ -116,10 +120,10 @@ export async function receivePurchase(ctx: Ctx, poId: string, input: ReceiveLine
     await applyMoves(ctx, moves, session);
     for (const j of serialJobs) await receiveSerials(ctx, { ...j, locationId: String(po.locationId), purchaseId: poId, event: "received", ref: po.number }, session);
     const items = receiptLines.map((r) => `${po.lines.find((l) => String(l._id) === String(r.lineId))?.name ?? "Item"} × ${r.qty / (po.lines.find((l) => String(l._id) === String(r.lineId))?.scale ?? 1)}`);
-    await postLedger(ctx, { partyId: po.supplierId, kind: "purchase", delta: value, docKind: "purchase", docId: po._id, number: po.number, note: [po.supplierInvoiceNo && `Inv ${po.supplierInvoiceNo}`, items.join(", ")].filter(Boolean).join(" · ") }, session);
+    await postLedger(ctx, { partyId: po.supplierId, kind: "purchase", delta: value, date: po.billDate ?? undefined, docKind: "purchase", docId: po._id, number: po.number, note: [po.supplierInvoiceNo && `Bill ${po.supplierInvoiceNo}`, items.join(", ")].filter(Boolean).join(" · ") }, session);
     await audit(ctx, "receive", "purchase", poId, `Received goods on ${po.number}`, undefined, session);
     return { status: po.status };
-  });
+  }
 }
 
 export async function returnPurchase(ctx: Ctx, poId: string, input: { lineId: string; qty: number; batchNo?: string; serials?: string[] }[]) {
@@ -163,4 +167,80 @@ export async function cancelPurchase(ctx: Ctx, poId: string) {
   const r = await PurchaseOrder.updateOne({ orgId: ctx.orgId, _id: poId, status: { $in: ["draft", "ordered"] } }, { $set: { status: "cancelled" } });
   if (!r.matchedCount) throw new AppError("CONFLICT", "Only orders with nothing received can be cancelled.");
   await audit(ctx, "cancel", "purchase", poId, "Cancelled purchase order");
+}
+
+export interface Attachment {
+  url: string;
+  name: string;
+  type: "png" | "jpg" | "webp" | "pdf";
+  size: number;
+}
+
+export interface PurchaseBillInput extends PoInput {
+  billDate: string | null;
+  lines: (PoInput["lines"][number] & { batchNo?: string; expiry?: string | null; serials?: string[] })[];
+  /** "full" pays the whole bill; a number pays that much now; null records it as unpaid. */
+  paid: { amount: number | "full"; method: "cash" | "card" | "upi" | "bank" | "other"; reference: string } | null;
+  attachments: Attachment[];
+}
+
+/**
+ * A supplier bill entered in one step: the goods are received into stock, the bill goes on the
+ * supplier's khata and anything paid now is set against it. All or nothing, in one transaction.
+ */
+export async function createPurchaseBill(ctx: Ctx, input: PurchaseBillInput) {
+  const billDate = input.billDate ? await entryDate(ctx, input.billDate) : new Date();
+  return inTransaction(async (session) => {
+    // Sequential: queries in one transaction session can't run in parallel.
+    const supplier = await Party.findOne({ orgId: ctx.orgId, _id: input.supplierId, kind: "supplier" }, null, { session }).lean();
+    const location = await Location.findOne({ orgId: ctx.orgId, _id: input.locationId }, null, { session }).lean();
+    if (!supplier) throw new AppError("INVALID", "Supplier not found");
+    if (!location) throw new AppError("INVALID", "Location not found");
+    const lines = await buildLines(ctx, input.lines);
+    const { number } = await nextNumber(ctx, "purchase", session);
+    const [po] = await PurchaseOrder.create(
+      [{
+        orgId: ctx.orgId, number, status: "ordered", supplierId: supplier._id, supplierName: supplier.name, locationId: location._id, expectedDate: null,
+        supplierInvoiceNo: input.supplierInvoiceNo, billDate, notes: input.notes, lines, createdBy: ctx.userId,
+        attachments: input.attachments.map((a) => ({ ...a, at: new Date(), userId: ctx.userId })),
+      }],
+      { session },
+    );
+    await audit(ctx, "create", "purchase", String(po._id), `Purchase bill ${number}${input.supplierInvoiceNo ? ` (supplier bill ${input.supplierInvoiceNo})` : ""}`, undefined, session);
+    await receiveIn(
+      ctx,
+      String(po._id),
+      po.lines.map((l, i) => ({ lineId: String(l._id), qty: l.qtyOrdered, batchNo: input.lines[i].batchNo, expiry: input.lines[i].expiry ?? null, serials: input.lines[i].serials })),
+      session,
+    );
+    let paid = 0;
+    if (input.paid) {
+      const fresh = await PurchaseOrder.findOne({ orgId: ctx.orgId, _id: po._id }, { receivedValue: 1, amountPaid: 1 }, { session }).lean();
+      const due = fresh!.receivedValue - fresh!.amountPaid;
+      paid = input.paid.amount === "full" ? due : input.paid.amount;
+      if (paid > due) throw new AppError("INVALID", `The bill comes to ${(due / 100).toFixed(2)}; you can't pay more than that against it.`);
+      if (paid > 0) {
+        await payIn(ctx, { partyId: String(supplier._id), amount: paid, method: input.paid.method, reference: input.paid.reference, note: "Paid with the bill", allocations: [{ docId: String(po._id), amount: paid }] }, billDate, session);
+      }
+    }
+    return { id: String(po._id), number, paid };
+  });
+}
+
+export async function addAttachments(ctx: Ctx, poId: string, files: Attachment[]) {
+  const po = await PurchaseOrder.findOne({ orgId: ctx.orgId, _id: poId }, { attachments: 1, number: 1 });
+  if (!po) throw new AppError("NOT_FOUND", "Purchase not found");
+  if (po.attachments.length + files.length > MAX_ATTACHMENTS) throw new AppError("INVALID", `A purchase can have up to ${MAX_ATTACHMENTS} files.`);
+  const r = await PurchaseOrder.updateOne(
+    { orgId: ctx.orgId, _id: poId, [`attachments.${MAX_ATTACHMENTS - files.length}`]: { $exists: false } },
+    { $push: { attachments: { $each: files.map((f) => ({ ...f, at: new Date(), userId: ctx.userId })) } } },
+  );
+  if (!r.matchedCount) throw new AppError("INVALID", `A purchase can have up to ${MAX_ATTACHMENTS} files.`);
+  await audit(ctx, "attach", "purchase", poId, `Attached ${files.length} file(s) to ${po.number}`);
+}
+
+export async function removeAttachment(ctx: Ctx, poId: string, url: string) {
+  const r = await PurchaseOrder.updateOne({ orgId: ctx.orgId, _id: poId }, { $pull: { attachments: { url } } });
+  if (!r.matchedCount) throw new AppError("NOT_FOUND", "Purchase not found");
+  await audit(ctx, "detach", "purchase", poId, "Removed an attached file", { url });
 }

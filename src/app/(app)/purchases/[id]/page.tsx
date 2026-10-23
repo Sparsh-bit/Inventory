@@ -9,6 +9,7 @@ import { getOrgSettings, requireCtx } from "@/server/context";
 import { Location, Product, PurchaseOrder } from "@/server/models";
 import { PageBody, PageHeader } from "@/components/app/page-header";
 import { PoActions } from "@/components/purchases/po-actions";
+import { PoAttachments } from "@/components/purchases/po-attachments";
 import { PoStatus } from "@/components/purchases/po-status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,7 +39,7 @@ export default async function PurchasePage({ params }: PageProps<"/purchases/[id
       <PageHeader
         back={{ href: "/purchases", label: "Purchases" }}
         title={<span className="flex items-center gap-2">{po.number} <PoStatus status={po.status} /></span>}
-        description={`${po.supplierName} · deliver to ${loc?.name ?? "—"} · created ${formatDate(po.createdAt, s.timezone, s.locale)}`}
+        description={`${po.supplierName} · ${loc?.name ?? "—"} · ${po.billDate ? `bill dated ${formatDate(po.billDate, s.timezone, s.locale)}` : `created ${formatDate(po.createdAt, s.timezone, s.locale)}`}`}
         actions={canWrite && (
           <>
             {(po.status === "ordered" || po.status === "draft") && (
@@ -97,6 +98,12 @@ export default async function PurchasePage({ params }: PageProps<"/purchases/[id
               <div className="flex justify-between text-muted-foreground"><span>Paid</span><span className="tabular-nums text-foreground">{money(po.amountPaid)}</span></div>
               <div className="flex justify-between border-t pt-2 font-semibold"><span>Balance</span><span className="tabular-nums">{money(Math.max(0, net - po.amountPaid))}</span></div>
               <p className="pt-2 text-xs text-muted-foreground">Pay the supplier from the <Link className="underline" href={`/suppliers/${po.supplierId}`}>supplier page</Link>.</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Bill photos &amp; PDFs</CardTitle></CardHeader>
+            <CardContent>
+              <PoAttachments id={id} canWrite={canWrite} files={(po.attachments ?? []).map((a) => ({ url: a.url ?? "", name: a.name ?? "file", type: (a.type ?? "jpg") as "jpg", size: a.size ?? 0 }))} />
             </CardContent>
           </Card>
           {(po.supplierInvoiceNo || po.notes || po.expectedDate) && (

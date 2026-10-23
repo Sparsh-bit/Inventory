@@ -154,7 +154,7 @@ export function PaymentButton({ partyId, kind, balance, size, variant }: { party
                           <Checkbox id={`bill-${b.id}`} checked={on} onCheckedChange={(v) => toggle(b, v === true)} />
                           <label htmlFor={`bill-${b.id}`} className="min-w-0 flex-1 cursor-pointer">
                             <span className="font-medium">{b.number}</span>
-                            {b.ref && <span className="text-muted-foreground"> · Inv {b.ref}</span>}
+                            {b.ref && <span className="text-muted-foreground"> · Bill {b.ref}</span>}
                             <span className="block text-xs text-muted-foreground">
                               {formatDate(b.date, org.timezone, org.locale)} · Total {org.money(b.total)} · <span className="font-medium text-foreground">Due {org.money(b.due)}</span>
                             </span>

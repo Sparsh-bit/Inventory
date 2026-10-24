@@ -4,7 +4,7 @@ import { expect, signIn, test } from "./fixtures";
 import { OWNER } from "./test-users";
 
 // Chrome reads this video file as its webcam (made by global setup from a real EAN-13 barcode).
-const VIDEO = path.resolve(".data/fake-webcam.y4m");
+const VIDEO = path.resolve(process.env.E2E_DATA_DIR ?? ".data/e2e", "fake-webcam.y4m");
 test.use({
   permissions: ["camera"],
   launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", `--use-file-for-fake-video-capture=${VIDEO}`] },

@@ -20,7 +20,7 @@ export async function GET(_req: Request, { params }: RouteContext<"/api/docs/[na
       headers: {
         "Content-Type": TYPES[m[2]],
         "Content-Disposition": `inline; filename="${name}"`,
-        "Cache-Control": "private, max-age=31536000, immutable",
+        "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
         ...(m[2] === "pdf" ? {} : { "Content-Security-Policy": "default-src 'none'" }),
       },

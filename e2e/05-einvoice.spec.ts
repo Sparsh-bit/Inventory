@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { expect, signIn, test } from "./fixtures";
 import { OWNER } from "./test-users";
 import { MOCK_CREDENTIALS } from "../scripts/mock-nic.mjs";
@@ -27,7 +28,7 @@ test("GST e-invoice: configure NIC API, bill a registered buyer, generate IRN + 
   await page.getByLabel("Client secret").fill(MOCK_CREDENTIALS.clientSecret);
   await page.getByLabel("API username").fill(MOCK_CREDENTIALS.username);
   await page.getByLabel("API password").fill(MOCK_CREDENTIALS.password);
-  await page.getByLabel("NIC public key").fill(await readFile(".data/mock-nic.pem", "utf8"));
+  await page.getByLabel("NIC public key").fill(await readFile(path.join(process.env.E2E_DATA_DIR ?? ".data/e2e", "mock-nic.pem"), "utf8"));
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("E-invoice settings saved")).toBeVisible();
   await page.getByRole("button", { name: /Test saved connection/ }).click();

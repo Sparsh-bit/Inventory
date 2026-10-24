@@ -12,6 +12,7 @@ const schema = z.object({
   MAIL_FROM: z.string().default("StockPilot <no-reply@localhost>"),
   // "file" writes outgoing mail to .data/mail.log (used by E2E tests)
   MAIL_SINK: z.enum(["resend", "smtp", "console", "file"]).optional(),
+  MAIL_FILE_PATH: z.string().optional(),
   UPLOAD_DIR: z.string().default("./uploads"),
   // Key for encrypting stored API credentials (defaults to one derived from BETTER_AUTH_SECRET).
   ENCRYPTION_KEY: z.string().min(32).optional(),

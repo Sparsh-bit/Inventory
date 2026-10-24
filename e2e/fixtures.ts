@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { expect, test as base, type Page } from "@playwright/test";
 
 /** Every test fails if the browser logs a console error or throws. */
@@ -18,10 +19,11 @@ export const test = base.extend<{ consoleErrors: string[] }>({
 });
 export { expect };
 
-/** Latest link emailed to `to` (MAIL_SINK=file writes .data/mail.log). */
+/** Latest link emailed to `to` (MAIL_SINK=file writes to the isolated E2E data directory). */
 export async function lastMailLink(to: string, subject?: RegExp): Promise<string> {
+  const mailFile = path.join(process.env.E2E_DATA_DIR ?? ".data/e2e", "mail.log");
   for (let i = 0; i < 30; i++) {
-    const lines = (await readFile(".data/mail.log", "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+    const lines = (await readFile(mailFile, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
     const hit = lines.map((l) => JSON.parse(l) as { to: string; subject: string; url?: string }).reverse().find((m) => m.to === to && m.url && (!subject || subject.test(m.subject)));
     if (hit?.url) return hit.url.replace(/^https?:\/\/[^/]+/, "");
     await new Promise((r) => setTimeout(r, 500));

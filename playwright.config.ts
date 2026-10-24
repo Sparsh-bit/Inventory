@@ -1,8 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import { platform, release } from "node:os";
 
 const PORT = 3100;
+const E2E_DATA_DIR = process.env.E2E_DATA_DIR ?? ".data/e2e";
 // ponytail: Playwright's Firefox build won't start on macOS 27 ("Could not find profile folder");
 // it still runs on Linux/Windows/older macOS. Drop this check once Playwright ships a fix.
 const firefoxWorks = !(platform() === "darwin" && Number(release().split(".")[0]) >= 27);
@@ -19,7 +21,10 @@ export const E2E_ENV = {
   BETTER_AUTH_SECRET: secret,
   APP_URL: `http://localhost:${PORT}`,
   MAIL_SINK: "file",
-  UPLOAD_DIR: ".data/e2e-uploads",
+  MAIL_FILE_PATH: path.join(E2E_DATA_DIR, "mail.log"),
+  UPLOAD_DIR: path.join(E2E_DATA_DIR, "uploads"),
+  E2E_DATA_DIR,
+  NEXT_DIST_DIR: ".next-e2e",
   NIC_EXTRA_HOSTS: "127.0.0.1:4555", // mock e-invoice API started by global setup
 };
 

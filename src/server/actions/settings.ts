@@ -9,7 +9,15 @@ import { OrgSettings, Product, TaxRate } from "../models";
 import { audit } from "../services/system";
 import { withAuth } from "../with-auth";
 
-export const updateBusiness = withAuth("settings:manage", settingsInput.extend({ logoUrl: z.string().regex(/^(\/api\/files\/[a-f0-9]{32}\.(png|jpg|webp))?$/).default("") }), async (ctx, i) => {
+export const updateBusiness = withAuth("settings:manage", settingsInput.extend({ logoUrl: z.string().regex(/^(\/api\/org-files\/[a-f0-9]{24}\/[a-f0-9]{32}\.(png|jpg|webp)|\/api\/files\/[a-f0-9]{32}\.(png|jpg|webp))?$/).default("") }), async (ctx, i) => {
+  const isScopedLogo = i.logoUrl.startsWith("/api/org-files/");
+  const isValidScopedLogo = isScopedLogo && i.logoUrl.startsWith(`/api/org-files/${ctx.orgId}/`);
+  const isOwnedLegacyLogo = !isScopedLogo && i.logoUrl
+    ? !!(await OrgSettings.exists({ orgId: ctx.orgId, logoUrl: i.logoUrl }))
+    : true;
+  if (i.logoUrl && !(isValidScopedLogo && isOwnedLegacyLogo)) {
+    throw new AppError("INVALID", "Choose a logo uploaded to this business.", { logoUrl: ["Choose a logo uploaded to this business."] });
+  }
   const { name, ...rest } = i;
   if (rest.taxMode === "GST" && rest.taxId && !/^\d{2}[A-Z0-9]{13}$/.test(rest.taxId)) throw new AppError("INVALID", "GSTIN must be 15 characters", { taxId: ["GSTIN must be 15 characters"] });
   if (name !== ctx.orgName) await auth.api.updateOrganization({ headers: await headers(), body: { organizationId: ctx.orgId, data: { name } } });

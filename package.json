@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@zxing/browser": "^0.2.1",
+    "animejs": "^4.5.0",
     "better-auth": "1.7",
     "bwip-js": "^4.11.4",
     "class-variance-authority": "^0.7.1",

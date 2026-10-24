@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 // Every app page is per-tenant and per-request, so Cache Components (which forces
 // Suspense around every session read) buys nothing here; pages render dynamically.
 const nextConfig: NextConfig = {
+  // Keep E2E production builds separate from a concurrent local dev server's .next directory.
+  distDir: process.env.NEXT_DIST_DIR ?? ".next",
   poweredByHeader: false,
   serverExternalPackages: ["mongoose", "mongodb", "exceljs", "bwip-js"],
   experimental: {

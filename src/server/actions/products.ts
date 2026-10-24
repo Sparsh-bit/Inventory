@@ -11,6 +11,13 @@ import { audit } from "../services/system";
 import { withAuth } from "../with-auth";
 
 export const saveProduct = withAuth("products:write", z.object({ id: objectId.nullable(), data: productInput }).strict(), async (ctx, { id, data }) => {
+  const legacyImages = data.images.filter((url) => /^\/api\/files\/[a-f0-9]{32}\.(?:webp|png|jpg)$/.test(url));
+  if (legacyImages.length) {
+    const existing = id ? await Product.findOne({ orgId: ctx.orgId, _id: id }, { images: 1 }).lean() : null;
+    if (legacyImages.some((url) => !existing?.images?.includes(url))) {
+      throw new AppError("INVALID", "Legacy images can only remain on the product that already owns them. Upload the image again to move it.");
+    }
+  }
   const res = id ? await updateProduct(ctx, id, data) : await createProduct(ctx, data);
   revalidatePath("/products");
   return res;

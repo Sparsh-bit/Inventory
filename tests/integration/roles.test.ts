@@ -70,6 +70,24 @@ describe("unauthenticated", () => {
   });
 });
 
+describe("tenant media authorization", () => {
+  it("does not let a product save claim an existing legacy flat-file URL", async () => {
+    current = ctxFor("owner");
+    const response = await mods.products.saveProduct({
+      id: null,
+      data: {
+        name: "Injected image reference",
+        unitCode: "pcs",
+        unitScale: 1,
+        images: [`/api/files/${"b".repeat(32)}.png`],
+        active: true,
+        variants: [{ salePrice: 100 }],
+      },
+    });
+    expect(response).toMatchObject({ ok: false, error: "Legacy images can only remain on the product that already owns them. Upload the image again to move it." });
+  });
+});
+
 describe("kind-specific party rules", () => {
   it("cashier can add customers but not suppliers", async () => {
     current = ctxFor("cashier");

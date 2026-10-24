@@ -1,5 +1,6 @@
 import "server-only";
 import { appendFile, mkdir } from "node:fs/promises";
+import path from "node:path";
 import nodemailer, { type Transporter } from "nodemailer";
 import { env } from "@/env";
 
@@ -12,8 +13,9 @@ export async function sendMail(to: string, subject: string, text: string, link?:
   const body = link ? `${text}\n\n${link.label}: ${link.url}` : text;
 
   if (sink === "file") {
-    await mkdir(".data", { recursive: true });
-    await appendFile(".data/mail.log", JSON.stringify({ to, subject, body, url: link?.url, at: new Date().toISOString() }) + "\n");
+    const mailFile = env.MAIL_FILE_PATH ?? ".data/mail.log";
+    await mkdir(path.dirname(mailFile), { recursive: true });
+    await appendFile(mailFile, JSON.stringify({ to, subject, body, url: link?.url, at: new Date().toISOString() }) + "\n");
     return;
   }
   if (sink === "console" || (sink === "smtp" && !env.SMTP_URL) || (sink === "resend" && !env.RESEND_API_KEY)) {

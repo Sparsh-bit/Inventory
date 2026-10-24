@@ -57,6 +57,8 @@ test("owner: sign up, set up business, sell, return, invite team", async ({ page
   await page.getByRole("button", { name: "Create business" }).click();
   await page.waitForURL(/dashboard/);
   await expect(page.getByRole("heading", { name: /Asha/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Good (morning|afternoon|evening), Asha/ })).toBeVisible();
+  await expect(page.getByText("Sales performance · last 30 days")).toBeVisible();
 
   for (const path of [
     "/dashboard", "/pos", "/sales", "/customers", "/products", "/products/new", "/products/categories", "/products/labels", "/inventory",

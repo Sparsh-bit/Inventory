@@ -209,6 +209,7 @@ const HANDLERS = {
   "imports.preview": actAs<MultipartImport>()(imports.previewImport, (r) => r.form ?? new FormData()),
   "ai.menu": actAs<{ file: Blob }>()(ai.readMenuFile, (r) => r.form ?? new FormData()),
   "ai.addProducts": act(ai.addMenuProducts),
+  "ai.chat": act(ai.askGalla),
   "imports.run": actAs<MultipartImport>()(imports.runImport, (r) => r.form ?? new FormData()),
 } satisfies { [K in RouteName]: Handler };
 

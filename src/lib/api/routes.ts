@@ -157,6 +157,7 @@ export const API_ROUTES = {
   "inventory.reorder": { method: "GET", path: "/inventory/reorder", summary: "Low-stock items grouped by supplier with suggested order quantities." },
   "imports.preview": { method: "POST", path: "/imports/preview", summary: "Preview an Excel/CSV import (multipart: kind, file).", multipart: true },
   "ai.menu": { method: "POST", path: "/ai/menu", summary: "Read a menu / price list from a photo or PDF into draft product rows (multipart: file). Nothing is saved.", multipart: true },
+  "ai.chat": { method: "POST", path: "/ai/chat", summary: "Ask Galla: a read-only assistant ({ messages: [{ role, content }] } -> { reply })." },
   "ai.addProducts": { method: "POST", path: "/ai/menu/products", summary: "Save reviewed menu rows as products." },
   "imports.run": { method: "POST", path: "/imports", summary: "Run an Excel/CSV import (multipart: kind, file).", multipart: true },
 } as const satisfies Record<string, RouteSpec>;

@@ -6,6 +6,7 @@ import { AI_MAX_ROWS, AI_TYPES, type AiRow } from "@/lib/ai-menu";
 import { allowed, loadCtx } from "../context";
 import { connectDb } from "../db";
 import { RateLimit } from "../models";
+import { chatReply } from "../services/ai-chat";
 import { readMenu } from "../services/ai-menu";
 import { applyImport } from "../services/imports";
 import { toSafeError, withAuth, type ActionResult } from "../with-auth";
@@ -48,4 +49,18 @@ export const addMenuProducts = withAuth("products:write", z.object({ rows: z.arr
   const res = await applyImport(ctx, "products", rows);
   revalidatePath("/products");
   return res;
+});
+
+const chat = z.object({ messages: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().trim().min(1).max(2000) }).strict()).min(1).max(16) }).strict();
+
+/** Ask Galla: a read-only assistant over the shop's own data. Everyone signed in can use it; each tool checks the role. */
+export const askGalla = withAuth("products:read", chat, async (ctx, { messages }) => {
+  if (messages[messages.length - 1].role !== "user") throw new Error("Ask a question first.");
+  const rate = await RateLimit.findOneAndUpdate(
+    { key: `ai-chat:${ctx.orgId}:${ctx.userId}` },
+    { $inc: { count: 1 }, $setOnInsert: { expiresAt: new Date(Date.now() + 3600_000) } },
+    { upsert: true, returnDocument: "after" },
+  );
+  if ((rate?.count ?? 0) > 60) return { reply: "You have asked a lot of questions this hour. Please try again a little later." };
+  return { reply: await chatReply(ctx, messages) };
 });

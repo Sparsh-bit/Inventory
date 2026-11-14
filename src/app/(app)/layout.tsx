@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ScanBarcode } from "lucide-react";
 import { getOrgSettings, requireCtx, allowed } from "@/server/context";
 import { AppSidebar } from "@/components/app/app-sidebar";
+import { Assistant } from "@/components/app/assistant";
 import { CommandMenu } from "@/components/app/command-menu";
 import { OrgProvider } from "@/components/app/org-context";
 import { RegisterServiceWorker } from "@/components/offline/register-sw";
@@ -46,6 +47,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mx-1 data-[orientation=vertical]:h-5" />
             <CommandMenu />
+            <Assistant />
             <div className="ml-auto flex items-center gap-2">
               <LanguagePicker />
               {allowed(ctx, "products:read") && <PhoneLinkButton compact />}
